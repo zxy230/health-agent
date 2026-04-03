@@ -21,8 +21,10 @@ export default async function CurrentPlanPage() {
               <div className="todo-main">
                 <span className="todo-meta">{day.dayLabel}</span>
                 <h3>{day.focus}</h3>
-                <p>{day.exercises.slice(0, 2).join(" / ")}</p>
-                <span className="todo-note">{day.recoveryTip}</span>
+                <div className="todo-detail">
+                  <p>{day.exercises.slice(0, 2).join(" / ")}</p>
+                  <span className="todo-note">{day.recoveryTip}</span>
+                </div>
               </div>
               <span className="plan-duration">{day.duration}</span>
             </article>
