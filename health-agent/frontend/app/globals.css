@@ -258,11 +258,13 @@ button {
 }
 
 .shell-unified-bar.is-auth-arriving {
-  animation: auth-workspace-bar-arrive 760ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform, opacity;
+  animation: auth-workspace-bar-arrive 720ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both;
 }
 
 .shell-content.is-auth-arriving {
-  animation: auth-workspace-arrive 880ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform, opacity, filter;
+  animation: auth-workspace-arrive 820ms cubic-bezier(0.22, 1, 0.36, 1) 140ms both;
 }
 
 .auth-arrival-layer {
@@ -272,7 +274,7 @@ button {
   display: grid;
   place-items: center;
   pointer-events: none;
-  animation: auth-arrival-layer-fade 980ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: auth-arrival-layer-fade 860ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .auth-arrival-glow {
@@ -282,14 +284,16 @@ button {
   border-radius: 999px;
   background: radial-gradient(circle, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0));
   filter: blur(12px);
-  animation: auth-arrival-glow-fade 900ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: transform, opacity;
+  animation: auth-arrival-glow-fade 820ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .auth-arrival-orbit {
   position: relative;
-  width: min(28vw, 188px);
+  width: var(--auth-arrival-orbit-size, min(28vw, 188px));
   aspect-ratio: 1;
-  animation: auth-arrival-orbit-settle 900ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: transform, opacity;
+  animation: auth-arrival-orbit-settle 820ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .auth-arrival-orbit-svg {
@@ -312,10 +316,10 @@ button {
 .auth-arrival-orbit-progress {
   stroke: #d53832;
   stroke-linecap: round;
-  stroke-dashoffset: 176;
+  stroke-dashoffset: 0;
+  transform: rotate(286deg);
   transform-origin: 110px 110px;
   filter: drop-shadow(0 14px 22px rgba(144, 26, 21, 0.18));
-  animation: auth-arrival-progress-release 860ms cubic-bezier(0.2, 0.9, 0.2, 1) forwards;
 }
 
 .shell-content,
@@ -5562,8 +5566,8 @@ select:focus {
 @keyframes auth-workspace-arrive {
   0% {
     opacity: 0;
-    transform: translateY(24px) scale(0.985);
-    filter: blur(8px);
+    transform: translateY(18px) scale(0.988);
+    filter: blur(6px);
   }
 
   100% {
@@ -5576,7 +5580,7 @@ select:focus {
 @keyframes auth-workspace-bar-arrive {
   0% {
     opacity: 0;
-    transform: translateY(-10px);
+    transform: translateY(-6px);
   }
 
   100% {
@@ -5662,19 +5666,19 @@ select:focus {
 }
 
 .auth-stage.is-transitioning .auth-shell {
-  opacity: 0.04;
-  transform: scale(0.985) translateY(10px);
-  filter: blur(10px);
+  opacity: 0.08;
+  transform: scale(0.992) translateY(6px);
+  filter: blur(6px);
 }
 
 .auth-stage.is-transitioning .auth-switcher,
 .auth-stage.is-transitioning .auth-form-panel,
 .auth-stage.is-transitioning .auth-ring-meaning {
   opacity: 0;
-  transform: translateY(18px) scale(0.985);
+  transform: translateY(14px) scale(0.99);
   transition:
-    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+    opacity 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .auth-switcher {
@@ -5933,7 +5937,7 @@ select:focus {
   z-index: 80;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 240ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .auth-stage.is-transitioning .auth-route-layer {
@@ -5947,7 +5951,7 @@ select:focus {
     radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0) 34%),
     linear-gradient(135deg, rgba(213, 56, 50, 0.08), rgba(243, 154, 74, 0.04) 42%, rgba(32, 32, 42, 0.08));
   opacity: 0;
-  animation: auth-route-backdrop-bloom 580ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: auth-route-backdrop-bloom 620ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .auth-route-orbit-shell {
@@ -5958,14 +5962,15 @@ select:focus {
   aspect-ratio: 1;
   display: grid;
   place-items: center;
+  will-change: transform;
   transform: translate(
       calc(-50% + var(--auth-route-origin-x, 0px)),
       calc(-50% + var(--auth-route-origin-y, 0px))
     )
     scale(var(--auth-route-origin-scale, 1));
   transition:
-    transform 760ms cubic-bezier(0.2, 0.9, 0.2, 1),
-    filter 760ms cubic-bezier(0.2, 0.9, 0.2, 1);
+    transform 820ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 640ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .auth-stage.is-centering .auth-route-orbit-shell {
@@ -5973,7 +5978,7 @@ select:focus {
 }
 
 .auth-stage.is-routing .auth-route-orbit-shell {
-  transform: translate(-50%, -50%) scale(1.045);
+  transform: translate(-50%, -50%) scale(1.032);
 }
 
 .auth-route-orbit-glow {
@@ -5982,7 +5987,21 @@ select:focus {
   border-radius: 999px;
   background: radial-gradient(circle, rgba(213, 56, 50, 0.16), rgba(213, 56, 50, 0));
   filter: blur(16px);
-  opacity: 0.8;
+  opacity: 0.58;
+  transform: scale(0.92);
+  transition:
+    transform 820ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 620ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.auth-stage.is-centering .auth-route-orbit-glow {
+  opacity: 0.82;
+  transform: scale(1);
+}
+
+.auth-stage.is-routing .auth-route-orbit-glow {
+  opacity: 0.64;
+  transform: scale(1.08);
 }
 
 .auth-route-orbit-svg {
@@ -6007,21 +6026,17 @@ select:focus {
 .auth-route-orbit-progress {
   stroke-linecap: round;
   stroke-dashoffset: var(--auth-route-orbit-circumference, 552.92);
-  transform-origin: 110px 110px;
   filter: drop-shadow(0 18px 28px rgba(144, 26, 21, 0.18));
-  transition:
-    stroke-dashoffset 680ms cubic-bezier(0.2, 0.9, 0.2, 1),
-    transform 680ms cubic-bezier(0.2, 0.9, 0.2, 1);
+  will-change: stroke-dashoffset;
+  transition: stroke-dashoffset 720ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .auth-stage.is-centering .auth-route-orbit-progress {
-  stroke-dashoffset: calc(var(--auth-route-orbit-circumference, 552.92) * 0.4);
-  transform: rotate(82deg);
+  stroke-dashoffset: var(--auth-route-orbit-circumference, 552.92);
 }
 
 .auth-stage.is-routing .auth-route-orbit-progress {
   stroke-dashoffset: 0;
-  transform: rotate(286deg);
 }
 
 @media (max-width: 980px) {
@@ -6099,41 +6114,25 @@ select:focus {
 
 @keyframes auth-arrival-glow-fade {
   0% {
-    opacity: 0;
-    transform: scale(0.78);
-  }
-
-  24% {
-    opacity: 0.94;
+    opacity: 0.82;
+    transform: scale(1);
   }
 
   100% {
     opacity: 0;
-    transform: scale(1.18);
+    transform: scale(1.22);
   }
 }
 
 @keyframes auth-arrival-orbit-settle {
   0% {
-    opacity: 0;
-    transform: scale(1.14);
+    opacity: 1;
+    transform: scale(1.045);
   }
 
   100% {
     opacity: 0;
-    transform: scale(0.84);
-  }
-}
-
-@keyframes auth-arrival-progress-release {
-  0% {
-    stroke-dashoffset: 176;
-    transform: rotate(26deg);
-  }
-
-  100% {
-    stroke-dashoffset: 0;
-    transform: rotate(286deg);
+    transform: scale(0.88);
   }
 }
 

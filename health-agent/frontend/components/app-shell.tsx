@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -11,7 +12,7 @@ import {
   subscribeAuthChange,
   type AuthSession
 } from "@/lib/auth";
-import { consumeRouteTransition } from "@/lib/route-transition";
+import { consumeRouteTransition, type RouteTransitionPayload } from "@/lib/route-transition";
 
 const primaryNavItems = [
   { href: "/chat", label: "对话" },
@@ -49,6 +50,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isAuthArriving, setIsAuthArriving] = useState(false);
+  const [authArrivalTransition, setAuthArrivalTransition] = useState<RouteTransitionPayload | null>(null);
 
   useEffect(() => {
     const syncSession = () => setSession(readAuthSession());
@@ -65,6 +67,7 @@ export function AppShell({ children }: PropsWithChildren) {
 
     if (isAuthPage) {
       setIsAuthArriving(false);
+      setAuthArrivalTransition(null);
       return;
     }
 
@@ -72,6 +75,7 @@ export function AppShell({ children }: PropsWithChildren) {
 
     if (!transition) {
       setIsAuthArriving(false);
+      setAuthArrivalTransition(null);
       return;
     }
 
@@ -80,10 +84,12 @@ export function AppShell({ children }: PropsWithChildren) {
 
     if (transition.source !== "auth" || transition.style !== "activity-ring" || !isRecent || !matchesTarget) {
       setIsAuthArriving(false);
+      setAuthArrivalTransition(null);
       return;
     }
 
     setIsAuthArriving(true);
+    setAuthArrivalTransition(transition);
 
     if (authArrivalTimerRef.current) {
       window.clearTimeout(authArrivalTimerRef.current);
@@ -91,6 +97,7 @@ export function AppShell({ children }: PropsWithChildren) {
 
     authArrivalTimerRef.current = window.setTimeout(() => {
       setIsAuthArriving(false);
+      setAuthArrivalTransition(null);
       authArrivalTimerRef.current = null;
     }, 980);
   }, [pathname]);
@@ -145,7 +152,7 @@ export function AppShell({ children }: PropsWithChildren) {
   return (
     <div className="app-shell">
       <BrandLoader />
-      {isAuthArriving ? <AuthArrivalLayer /> : null}
+      {isAuthArriving ? <AuthArrivalLayer transition={authArrivalTransition} /> : null}
       <header className="shell-header">
         <div className={`shell-unified-bar ${isAuthArriving ? "is-auth-arriving" : ""}`}>
           <Link href="/chat" className="brand-wordmark">
@@ -240,11 +247,18 @@ export function AppShell({ children }: PropsWithChildren) {
   );
 }
 
-function AuthArrivalLayer() {
+function AuthArrivalLayer({ transition }: { transition: RouteTransitionPayload | null }) {
+  const orbitStyle =
+    transition?.orbitSize !== undefined
+      ? ({
+          "--auth-arrival-orbit-size": `${transition.orbitSize}px`
+        } as CSSProperties)
+      : undefined;
+
   return (
     <div className="auth-arrival-layer" aria-hidden="true">
       <div className="auth-arrival-glow" />
-      <div className="auth-arrival-orbit">
+      <div className="auth-arrival-orbit" style={orbitStyle}>
         <svg viewBox="0 0 220 220" className="auth-arrival-orbit-svg" role="presentation">
           <circle className="auth-arrival-orbit-track" cx="110" cy="110" r="88" />
           <circle

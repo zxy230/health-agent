@@ -7,6 +7,7 @@ export interface RouteTransitionPayload {
   target: string;
   at: number;
   style: "activity-ring";
+  orbitSize?: number;
 }
 
 export function storeRouteTransition(transition: RouteTransitionPayload) {

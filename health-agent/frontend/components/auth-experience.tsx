@@ -30,6 +30,10 @@ const dashboardRingAccents = ["#d53832", "#20202a", "#8f9199"] as const;
 const authRouteTarget = "/chat";
 const authRouteOrbitRadius = 88;
 const authRouteOrbitCircumference = 2 * Math.PI * authRouteOrbitRadius;
+const authRouteSettleDelayMs = 120;
+const authRouteCenteringDurationMs = 820;
+const authRouteRoutingDelayMs = authRouteSettleDelayMs + authRouteCenteringDurationMs + 20;
+const authRouteRedirectDelayMs = 1480;
 
 interface AuthRouteMetrics {
   originX: number;
@@ -245,9 +249,11 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
   };
 
   const beginSuccessTransition = () => {
+    const metrics = captureRouteMetrics();
+
     setErrorMessage("");
     setSuccessPhase("settling");
-    setRouteMetrics(captureRouteMetrics());
+    setRouteMetrics(metrics);
 
     if (settleTimerRef.current) {
       window.clearTimeout(settleTimerRef.current);
@@ -259,17 +265,24 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
       window.clearTimeout(redirectTimerRef.current);
     }
 
-    settleTimerRef.current = window.setTimeout(() => setSuccessPhase("centering"), 180);
-    routeAnimationTimerRef.current = window.setTimeout(() => setSuccessPhase("routing"), 860);
+    settleTimerRef.current = window.setTimeout(
+      () => setSuccessPhase("centering"),
+      authRouteSettleDelayMs
+    );
+    routeAnimationTimerRef.current = window.setTimeout(
+      () => setSuccessPhase("routing"),
+      authRouteRoutingDelayMs
+    );
     redirectTimerRef.current = window.setTimeout(() => {
       storeRouteTransition({
         source: "auth",
         target: authRouteTarget,
         at: Date.now(),
-        style: "activity-ring"
+        style: "activity-ring",
+        orbitSize: metrics.targetSize
       });
       startTransition(() => router.push(authRouteTarget));
-    }, 1520);
+    }, authRouteRedirectDelayMs);
   };
 
   const fillDemoValues = () => {
