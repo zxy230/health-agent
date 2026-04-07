@@ -1,10 +1,10 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import type { CSSProperties, PropsWithChildren } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { PropsWithChildren, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandLoader } from "@/components/brand-loader";
 import {
   authAdapter,
@@ -20,7 +20,7 @@ const primaryNavItems = [
   { href: "/plans/current", label: "计划" },
   { href: "/profile", label: "档案" },
   { href: "/logs", label: "记录" },
-  { href: "/exercises", label: "动作" }
+  { href: "/exercises", label: "动作库" }
 ];
 
 const authNavItems = [
@@ -45,12 +45,14 @@ function getInitials(name: string) {
 
 export function AppShell({ children }: PropsWithChildren) {
   const pathname = usePathname();
+  const router = useRouter();
   const menuRef = useRef<HTMLDivElement | null>(null);
   const authArrivalTimerRef = useRef<number | null>(null);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isAuthArriving, setIsAuthArriving] = useState(false);
-  const [authArrivalTransition, setAuthArrivalTransition] = useState<RouteTransitionPayload | null>(null);
+  const [authArrivalTransition, setAuthArrivalTransition] =
+    useState<RouteTransitionPayload | null>(null);
 
   useEffect(() => {
     const syncSession = () => setSession(readAuthSession());
@@ -82,7 +84,12 @@ export function AppShell({ children }: PropsWithChildren) {
     const isRecent = typeof transition.at === "number" && Date.now() - transition.at < 5000;
     const matchesTarget = pathname === transition.target || pathname.startsWith(`${transition.target}/`);
 
-    if (transition.source !== "auth" || transition.style !== "activity-ring" || !isRecent || !matchesTarget) {
+    if (
+      transition.source !== "auth" ||
+      transition.style !== "activity-ring" ||
+      !isRecent ||
+      !matchesTarget
+    ) {
       setIsAuthArriving(false);
       setAuthArrivalTransition(null);
       return;
@@ -138,15 +145,13 @@ export function AppShell({ children }: PropsWithChildren) {
 
   const isAuthPage = pathname === "/login" || pathname === "/register";
   const navItems = isAuthPage ? authNavItems : primaryNavItems;
-  const initials = useMemo(
-    () => (session ? getInitials(session.user.name) : ""),
-    [session]
-  );
+  const initials = useMemo(() => (session ? getInitials(session.user.name) : ""), [session]);
 
   const handleLogout = async () => {
     await authAdapter.logout();
     setSession(null);
     setMenuOpen(false);
+    router.push("/login");
   };
 
   return (
@@ -166,7 +171,7 @@ export function AppShell({ children }: PropsWithChildren) {
             <span>GymPal</span>
           </Link>
 
-          <nav className="nav-bar-list" aria-label="Primary navigation">
+          <nav className="nav-bar-list" aria-label="主导航">
             {navItems.map((item) => (
               <Link
                 key={item.href}
@@ -230,7 +235,7 @@ export function AppShell({ children }: PropsWithChildren) {
                 ) : null}
               </>
             ) : (
-              <Link href="/login" className="shell-account-trigger is-empty" aria-label="登录">
+              <Link href="/login" className="shell-account-trigger is-empty" aria-label="前往登录">
                 <span className="shell-avatar" aria-hidden="true">
                   <span className="shell-avatar-empty" />
                 </span>

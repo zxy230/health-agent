@@ -26,6 +26,7 @@ interface ProgressRing {
 }
 
 type SuccessPhase = "idle" | "settling" | "centering" | "routing";
+
 const dashboardRingAccents = ["#d53832", "#20202a", "#8f9199"] as const;
 const authRouteTarget = "/chat";
 const authRouteOrbitRadius = 88;
@@ -49,10 +50,10 @@ const goalOptions = [
 ] as const;
 
 const trainingDayOptions = [
-  { value: "2", label: "2 天" },
-  { value: "3", label: "3 天" },
-  { value: "4", label: "4 天" },
-  { value: "5", label: "5 天" }
+  { value: "2", label: "每周 2 天" },
+  { value: "3", label: "每周 3 天" },
+  { value: "4", label: "每周 4 天" },
+  { value: "5", label: "每周 5 天" }
 ] as const;
 
 const loginDemoValues: LoginPayload = {
@@ -76,21 +77,21 @@ const modeCopy = {
     title: "欢迎回来",
     description: "继续今天的训练节奏。",
     submitLabel: "登录",
-    demoLabel: "演示账号",
+    demoLabel: "填入演示账号",
     helper: "demo@gympal.ai / gympal123",
-    success: "登录完成，正在进入主页面。"
+    success: "登录完成，正在进入训练主页。"
   },
   register: {
     title: "创建账号",
     description: "设置目标后即可开始。",
     submitLabel: "注册",
-    demoLabel: "示例资料",
-    helper: "只保留开始训练需要的信息。",
-    success: "注册完成，正在进入主页面。"
+    demoLabel: "填入示例资料",
+    helper: "只保留开始训练所需的关键信息。",
+    success: "注册完成，正在进入训练主页。"
   }
 } as const;
 
-const ringMeaningCopy = "三层环同步表示填写进度";
+const ringMeaningCopy = "三层圆环会同步显示表单完成进度。";
 
 function createEmptyLoginState(): LoginPayload {
   return {
@@ -179,7 +180,7 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
     isFilled(registerForm.password) &&
     registerForm.password === registerForm.confirmPassword;
 
-  const isReady =
+  const canSubmit =
     mode === "login"
       ? isFilled(loginForm.email) && isFilled(loginForm.password)
       : isFilled(registerForm.name) &&
@@ -198,21 +199,21 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
       key: "move",
       label: "Move",
       value: unifiedRingValue,
-      note: `${completedFields}/${totalFields} 项已完成`,
+      note: `已完成 ${completedFields}/${totalFields} 项`,
       accent: dashboardRingAccents[0]
     },
     {
       key: "load",
       label: "Load",
       value: unifiedRingValue,
-      note: `${completedFields}/${totalFields} 项已完成`,
+      note: `已完成 ${completedFields}/${totalFields} 项`,
       accent: dashboardRingAccents[1]
     },
     {
       key: "focus",
       label: "Focus",
       value: unifiedRingValue,
-      note: `${completedFields}/${totalFields} 项已完成`,
+      note: `已完成 ${completedFields}/${totalFields} 项`,
       accent: dashboardRingAccents[2]
     }
   ];
@@ -332,7 +333,7 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
     }
 
     if (!registerForm.goal || !registerForm.trainingDays) {
-      setErrorMessage("请选择目标和训练频率。");
+      setErrorMessage("请选择训练目标和每周训练频次。");
       return false;
     }
 
@@ -394,7 +395,7 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
         .join(" ")}
     >
       <section className="auth-shell">
-        <div className="auth-switcher" aria-label="Authentication routes">
+        <div className="auth-switcher" aria-label="认证路由">
           <Link href="/login" className={`auth-switch-link ${mode === "login" ? "active" : ""}`}>
             登录
           </Link>
@@ -550,7 +551,7 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
                 <button
                   className="button auth-primary-button"
                   type="submit"
-                  disabled={isSubmitting || isTransitioning}
+                  disabled={isSubmitting || isTransitioning || !canSubmit}
                 >
                   {isSubmitting ? "处理中..." : modeCopy[mode].submitLabel}
                 </button>
@@ -603,7 +604,7 @@ function AuthRingCluster({
       <div className="auth-ring-stage" ref={ringAnchorRef}>
         <ActivityRings rings={activityRings} activeSlug={activeRingSlug} lockActiveSlug />
       </div>
-      <div className="auth-ring-meaning" aria-label="Activity ring meanings">
+      <div className="auth-ring-meaning" aria-label="圆环进度说明">
         <div className="auth-ring-meaning-item compact">
           <span
             className="auth-ring-meaning-dot"
