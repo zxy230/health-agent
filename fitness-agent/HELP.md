@@ -566,5 +566,9 @@ Recommended team flow:
 4. teammates pull
 5. teammates run migration + seed locally
 
-
+chat page:
 ![alt text](image.png)
+postgresql local database:
+![alt text](image-1.png)
+request to LLM and response from LLM:
+![alt text](image-2.png)
