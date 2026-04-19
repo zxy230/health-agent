@@ -1,12 +1,13 @@
 "use client";
 
-import type { CSSProperties, FormEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  createCurrentPlanDay,
+  deleteCurrentPlanDay,
+  updateCurrentPlanDay
+} from "@/lib/api";
 import type { WorkoutPlanDay } from "@/lib/types";
-
-interface EditableWorkoutPlanDay extends WorkoutPlanDay {
-  id: string;
-}
 
 interface PlanDraft {
   dayLabel: string;
@@ -16,12 +17,6 @@ interface PlanDraft {
   recoveryTip: string;
 }
 
-interface StoredPlanChecklistState {
-  items: EditableWorkoutPlanDay[];
-  completed: string[];
-}
-
-const planChecklistStorageKey = "health-agent.plan-checklist.v1";
 const emptyDraft: PlanDraft = {
   dayLabel: "",
   focus: "",
@@ -30,15 +25,17 @@ const emptyDraft: PlanDraft = {
   recoveryTip: ""
 };
 
-function createPlanId() {
-  return `plan-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
+function sortPlanItems(items: WorkoutPlanDay[]) {
+  return [...items].sort(
+    (left, right) => left.sortOrder - right.sortOrder || left.dayLabel.localeCompare(right.dayLabel, "zh-CN")
+  );
 }
 
-function createEditablePlanItem(day: WorkoutPlanDay): EditableWorkoutPlanDay {
-  return {
-    ...day,
-    id: createPlanId()
-  };
+function parseExercises(exercisesText: string) {
+  return exercisesText
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function draftFromItem(day: WorkoutPlanDay): PlanDraft {
@@ -51,163 +48,50 @@ function draftFromItem(day: WorkoutPlanDay): PlanDraft {
   };
 }
 
-function parseExercises(exercisesText: string) {
-  return exercisesText
-    .split(/\r?\n/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
+function normalizeErrorMessage(error: unknown) {
+  const raw = error instanceof Error ? error.message : "保存失败，请稍后重试。";
 
-function buildPlanFromDraft(draft: PlanDraft, id = createPlanId()): EditableWorkoutPlanDay {
-  return {
-    id,
-    dayLabel: draft.dayLabel.trim() || "未命名",
-    focus: draft.focus.trim() || "待补充计划",
-    duration: draft.duration.trim() || "待安排",
-    exercises: parseExercises(draft.exercisesText),
-    recoveryTip: draft.recoveryTip.trim() || "暂无恢复提醒"
-  };
-}
-
-function isStoredPlanItem(value: unknown): value is EditableWorkoutPlanDay {
-  if (!value || typeof value !== "object") {
-    return false;
+  if (raw.includes("No active workout plan found")) {
+    return "请先生成本周计划，再新增或编辑待办。";
   }
 
-  const item = value as Record<string, unknown>;
+  if (raw.includes("Workout plan day was not found")) {
+    return "这条计划已经不存在了，请刷新页面后重试。";
+  }
 
-  return (
-    typeof item.id === "string" &&
-    typeof item.dayLabel === "string" &&
-    typeof item.focus === "string" &&
-    typeof item.duration === "string" &&
-    typeof item.recoveryTip === "string" &&
-    Array.isArray(item.exercises) &&
-    item.exercises.every((exercise) => typeof exercise === "string")
-  );
+  return raw;
 }
 
 export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
-  const celebrationTimersRef = useRef<number[]>([]);
-  const [items, setItems] = useState<EditableWorkoutPlanDay[]>(() => plan.map(createEditablePlanItem));
-  const [completed, setCompleted] = useState<string[]>([]);
-  const [celebrating, setCelebrating] = useState<string | null>(null);
-  const [allCelebrating, setAllCelebrating] = useState(false);
-  const [storageReady, setStorageReady] = useState(false);
+  const [items, setItems] = useState<WorkoutPlanDay[]>(() => sortPlanItems(plan));
+  const [composerOpen, setComposerOpen] = useState(plan.length === 0);
   const [newDraft, setNewDraft] = useState<PlanDraft>(emptyDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<PlanDraft>(emptyDraft);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [composerOpen, setComposerOpen] = useState(false);
-
-  const progress = useMemo(
-    () => Math.round((completed.length / Math.max(items.length, 1)) * 100),
-    [completed.length, items.length]
-  );
-
-  const nextUp = items.find((day) => !completed.includes(day.id)) ?? null;
-  const remainingCount = Math.max(items.length - completed.length, 0);
+  const [expandedId, setExpandedId] = useState<string | null>(plan[0]?.id ?? null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [pendingItemId, setPendingItemId] = useState<string | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
-    return () => {
-      celebrationTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
-      celebrationTimersRef.current = [];
-    };
-  }, []);
-
-  useEffect(() => {
-    try {
-      const rawState = window.localStorage.getItem(planChecklistStorageKey);
-
-      if (!rawState) {
-        setStorageReady(true);
-        return;
-      }
-
-      const parsed = JSON.parse(rawState) as Partial<StoredPlanChecklistState>;
-      const storedItems = Array.isArray(parsed.items) ? parsed.items.filter(isStoredPlanItem) : [];
-      const validIds = new Set(storedItems.map((item) => item.id));
-      const storedCompleted = Array.isArray(parsed.completed)
-        ? parsed.completed.filter((id): id is string => typeof id === "string" && validIds.has(id))
-        : [];
-
-      if (storedItems.length > 0) {
-        setItems(storedItems);
-        setCompleted(storedCompleted);
-        setExpandedId(storedItems[0]?.id ?? null);
-      }
-    } catch {
-      const nextItems = plan.map(createEditablePlanItem);
-      setItems(nextItems);
-      setCompleted([]);
-      setExpandedId(nextItems[0]?.id ?? null);
-    } finally {
-      setStorageReady(true);
-    }
+    const nextItems = sortPlanItems(plan);
+    setItems(nextItems);
+    setExpandedId((current) => (nextItems.some((item) => item.id === current) ? current : nextItems[0]?.id ?? null));
   }, [plan]);
 
-  useEffect(() => {
-    if (!storageReady) {
-      return;
-    }
+  const completedCount = useMemo(() => items.filter((item) => item.isCompleted).length, [items]);
+  const progress = useMemo(() => Math.round((completedCount / Math.max(items.length, 1)) * 100), [completedCount, items.length]);
+  const nextUp = items.find((item) => !item.isCompleted) ?? null;
+  const remainingCount = Math.max(items.length - completedCount, 0);
 
-    const validIds = new Set(items.map((item) => item.id));
-    const syncedCompleted = completed.filter((id) => validIds.has(id));
-
-    if (syncedCompleted.length !== completed.length) {
-      setCompleted(syncedCompleted);
-      return;
-    }
-
-    window.localStorage.setItem(
-      planChecklistStorageKey,
-      JSON.stringify({
-        items,
-        completed: syncedCompleted
-      } satisfies StoredPlanChecklistState)
-    );
-  }, [completed, items, storageReady]);
-
-  useEffect(() => {
-    if (items.length === 0 || completed.length !== items.length) {
-      setAllCelebrating(false);
-      return;
-    }
-
-    setAllCelebrating(true);
-    const timer = window.setTimeout(() => setAllCelebrating(false), 2200);
-    return () => window.clearTimeout(timer);
-  }, [completed.length, items.length]);
-
-  function toggleComplete(itemId: string) {
-    const isDone = completed.includes(itemId);
-
-    if (isDone) {
-      setCompleted((current) => current.filter((item) => item !== itemId));
-      return;
-    }
-
-    setCompleted((current) => [...current, itemId]);
-    setCelebrating(itemId);
-
-    const timerId = window.setTimeout(() => {
-      celebrationTimersRef.current = celebrationTimersRef.current.filter((value) => value !== timerId);
-      setCelebrating((current) => (current === itemId ? null : current));
-    }, 1200);
-
-    celebrationTimersRef.current.push(timerId);
+  function clearMessages() {
+    setFeedbackMessage("");
+    setErrorMessage("");
   }
 
-  function handleAddItem(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const nextItem = buildPlanFromDraft(newDraft);
-    setItems((current) => [...current, nextItem]);
-    setExpandedId(nextItem.id);
-    setComposerOpen(false);
-    setNewDraft(emptyDraft);
-  }
-
-  function startEditing(item: EditableWorkoutPlanDay) {
+  function startEditing(item: WorkoutPlanDay) {
+    clearMessages();
     setEditingId(item.id);
     setEditingDraft(draftFromItem(item));
     setExpandedId(item.id);
@@ -218,24 +102,98 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
     setEditingDraft(emptyDraft);
   }
 
-  function handleSaveEdit(event: FormEvent<HTMLFormElement>, itemId: string) {
+  async function handleAddItem(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const nextItem = buildPlanFromDraft(editingDraft, itemId);
-    setItems((current) => current.map((item) => (item.id === itemId ? nextItem : item)));
-    cancelEditing();
+    clearMessages();
+    setIsSaving(true);
+
+    try {
+      const created = await createCurrentPlanDay({
+        dayLabel: newDraft.dayLabel.trim() || "未命名",
+        focus: newDraft.focus.trim() || "待补充计划内容",
+        duration: newDraft.duration.trim() || "待安排",
+        exercises: parseExercises(newDraft.exercisesText),
+        recoveryTip: newDraft.recoveryTip.trim() || "暂无恢复提醒"
+      });
+
+      setItems((current) => sortPlanItems([...current, created]));
+      setExpandedId(created.id);
+      setComposerOpen(false);
+      setNewDraft(emptyDraft);
+      setFeedbackMessage("计划项已新增，刷新页面后仍会保留。");
+    } catch (error) {
+      setErrorMessage(normalizeErrorMessage(error));
+    } finally {
+      setIsSaving(false);
+    }
   }
 
-  function handleDeleteItem(itemId: string) {
-    const remainingItems = items.filter((item) => item.id !== itemId);
-    setItems(remainingItems);
-    setCompleted((current) => current.filter((item) => item !== itemId));
+  async function handleSaveEdit(event: FormEvent<HTMLFormElement>, itemId: string) {
+    event.preventDefault();
+    clearMessages();
+    setPendingItemId(itemId);
 
-    if (editingId === itemId) {
+    try {
+      const updated = await updateCurrentPlanDay(itemId, {
+        dayLabel: editingDraft.dayLabel.trim() || "未命名",
+        focus: editingDraft.focus.trim() || "待补充计划内容",
+        duration: editingDraft.duration.trim() || "待安排",
+        exercises: parseExercises(editingDraft.exercisesText),
+        recoveryTip: editingDraft.recoveryTip.trim() || "暂无恢复提醒"
+      });
+
+      setItems((current) => sortPlanItems(current.map((item) => (item.id === itemId ? updated : item))));
       cancelEditing();
+      setFeedbackMessage("计划项已更新。");
+    } catch (error) {
+      setErrorMessage(normalizeErrorMessage(error));
+    } finally {
+      setPendingItemId(null);
     }
+  }
 
-    if (expandedId === itemId) {
-      setExpandedId(remainingItems[0]?.id ?? null);
+  async function handleDeleteItem(itemId: string) {
+    clearMessages();
+    setPendingItemId(itemId);
+
+    try {
+      await deleteCurrentPlanDay(itemId);
+      setItems((current) => current.filter((item) => item.id !== itemId));
+      setExpandedId((current) => (current === itemId ? null : current));
+
+      if (editingId === itemId) {
+        cancelEditing();
+      }
+
+      setFeedbackMessage("计划项已删除。");
+    } catch (error) {
+      setErrorMessage(normalizeErrorMessage(error));
+    } finally {
+      setPendingItemId(null);
+    }
+  }
+
+  async function handleToggleComplete(item: WorkoutPlanDay) {
+    clearMessages();
+    setPendingItemId(item.id);
+
+    const previousItems = items;
+    const optimisticItems = items.map((current) =>
+      current.id === item.id ? { ...current, isCompleted: !current.isCompleted } : current
+    );
+    setItems(optimisticItems);
+
+    try {
+      const updated = await updateCurrentPlanDay(item.id, {
+        isCompleted: !item.isCompleted
+      });
+
+      setItems((current) => current.map((planItem) => (planItem.id === item.id ? updated : planItem)));
+    } catch (error) {
+      setItems(previousItems);
+      setErrorMessage(normalizeErrorMessage(error));
+    } finally {
+      setPendingItemId(null);
     }
   }
 
@@ -251,12 +209,15 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
           <div className="todo-toolbar">
             <div className="chip-row">
               <span className="mini-chip">{items.length} 项</span>
-              <span className="mini-chip">{completed.length} 已完成</span>
+              <span className="mini-chip">{completedCount} 已完成</span>
             </div>
             <button className="ghost-button" type="button" onClick={() => setComposerOpen((current) => !current)}>
               {composerOpen ? "收起新建" : "新建计划"}
             </button>
           </div>
+
+          {feedbackMessage ? <p className="field-hint">{feedbackMessage}</p> : null}
+          {errorMessage ? <p className="field-hint" style={{ color: "#8c1e1a" }}>{errorMessage}</p> : null}
 
           {composerOpen ? (
             <form className="todo-composer compact" onSubmit={handleAddItem}>
@@ -269,6 +230,7 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
                     placeholder="例如：周二"
                   />
                 </label>
+
                 <label className="field">
                   <span className="form-label">时长</span>
                   <input
@@ -277,14 +239,16 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
                     placeholder="例如：50 分钟"
                   />
                 </label>
+
                 <label className="field span-2">
                   <span className="form-label">计划标题</span>
                   <input
                     value={newDraft.focus}
                     onChange={(event) => setNewDraft((current) => ({ ...current, focus: event.target.value }))}
-                    placeholder="例如：低冲击下肢与步数补齐"
+                    placeholder="例如：低冲击下肢训练与步数补齐"
                   />
                 </label>
+
                 <label className="field span-2">
                   <span className="form-label">动作明细</span>
                   <textarea
@@ -295,6 +259,7 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
                     placeholder={"每行一个动作\n快走 35 分钟\n自重深蹲 3x15"}
                   />
                 </label>
+
                 <label className="field span-2">
                   <span className="form-label">恢复提醒</span>
                   <input
@@ -306,9 +271,10 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
                   />
                 </label>
               </div>
+
               <div className="action-row">
-                <button className="button" type="submit">
-                  添加计划
+                <button className="button" type="submit" disabled={isSaving}>
+                  {isSaving ? "保存中..." : "添加计划"}
                 </button>
               </div>
             </form>
@@ -317,46 +283,31 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
 
         {items.length === 0 ? (
           <div className="todo-empty">
-            <strong>当前没有计划条目</strong>
-            <p className="muted">可以先新建一项计划，清单会自动在这里展开。</p>
+            <strong>当前还没有计划条目</strong>
+            <p className="muted">
+              你可以先新建一项计划。如果新增失败，通常说明当前还没有激活中的本周计划，请先生成计划。
+            </p>
           </div>
         ) : null}
 
         {items.map((day) => {
-          const isDone = completed.includes(day.id);
-          const isCelebrating = celebrating === day.id;
           const isEditing = editingId === day.id;
           const isExpanded = expandedId === day.id || isEditing;
+          const isBusy = pendingItemId === day.id;
 
           return (
             <article
-              className={`todo-item refined ${isDone ? "done" : ""} ${isEditing ? "is-editing" : ""} ${isExpanded ? "is-open" : ""}`}
+              className={`todo-item refined ${day.isCompleted ? "done" : ""} ${isEditing ? "is-editing" : ""} ${isExpanded ? "is-open" : ""}`}
               key={day.id}
             >
               <button
                 type="button"
-                className={`todo-check-button ${isDone ? "done" : ""}`}
-                onClick={() => toggleComplete(day.id)}
-                aria-label={`mark ${day.dayLabel} complete`}
+                className={`todo-check-button ${day.isCompleted ? "done" : ""}`}
+                onClick={() => handleToggleComplete(day)}
+                aria-label={`切换 ${day.dayLabel} 的完成状态`}
+                disabled={isBusy}
               >
                 <span className="todo-check" />
-                {isCelebrating ? (
-                  <span className="todo-confetti falling" aria-hidden="true">
-                    {Array.from({ length: 12 }).map((_, index) => (
-                      <span
-                        key={index}
-                        className="todo-confetti-piece falling"
-                        style={
-                          {
-                            ["--piece-delay" as string]: `${index * 40}ms`,
-                            ["--piece-left" as string]: `${8 + index * 7}%`,
-                            ["--piece-rotate" as string]: `${index * 18}deg`
-                          } as CSSProperties
-                        }
-                      />
-                    ))}
-                  </span>
-                ) : null}
               </button>
 
               <button
@@ -386,6 +337,7 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
                             }
                           />
                         </label>
+
                         <label className="field">
                           <span className="form-label">时长</span>
                           <input
@@ -395,6 +347,7 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
                             }
                           />
                         </label>
+
                         <label className="field span-2">
                           <span className="form-label">计划标题</span>
                           <input
@@ -404,36 +357,33 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
                             }
                           />
                         </label>
+
                         <label className="field span-2">
                           <span className="form-label">动作明细</span>
                           <textarea
                             value={editingDraft.exercisesText}
                             onChange={(event) =>
-                              setEditingDraft((current) => ({
-                                ...current,
-                                exercisesText: event.target.value
-                              }))
+                              setEditingDraft((current) => ({ ...current, exercisesText: event.target.value }))
                             }
                           />
                         </label>
+
                         <label className="field span-2">
                           <span className="form-label">恢复提醒</span>
                           <input
                             value={editingDraft.recoveryTip}
                             onChange={(event) =>
-                              setEditingDraft((current) => ({
-                                ...current,
-                                recoveryTip: event.target.value
-                              }))
+                              setEditingDraft((current) => ({ ...current, recoveryTip: event.target.value }))
                             }
                           />
                         </label>
                       </div>
+
                       <div className="action-row">
-                        <button className="button" type="submit">
-                          保存修改
+                        <button className="button" type="submit" disabled={isBusy}>
+                          {isBusy ? "保存中..." : "保存修改"}
                         </button>
-                        <button className="ghost-button" type="button" onClick={cancelEditing}>
+                        <button className="ghost-button" type="button" onClick={cancelEditing} disabled={isBusy}>
                           取消
                         </button>
                       </div>
@@ -454,14 +404,16 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
                         </div>
                         <span className="todo-note">{day.recoveryTip}</span>
                       </div>
+
                       <div className="todo-item-tools">
-                        <button className="chip-button" type="button" onClick={() => startEditing(day)}>
+                        <button className="chip-button" type="button" onClick={() => startEditing(day)} disabled={isBusy}>
                           编辑
                         </button>
                         <button
                           className="ghost-button todo-danger-button"
                           type="button"
                           onClick={() => handleDeleteItem(day.id)}
+                          disabled={isBusy}
                         >
                           删除
                         </button>
@@ -476,36 +428,22 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
       </section>
 
       <aside className="plan-quick-panel refined">
-        <div className={`plan-progress-panel refined ${allCelebrating ? "complete" : ""}`}>
-          {allCelebrating ? (
-            <span className="plan-complete-rain" aria-hidden="true">
-              {Array.from({ length: 28 }).map((_, index) => (
-                <span
-                  key={index}
-                  className="plan-complete-piece"
-                  style={
-                    {
-                      ["--rain-left" as string]: `${(index % 14) * 7 + 2}%`,
-                      ["--rain-delay" as string]: `${(index % 7) * 90}ms`,
-                      ["--rain-rotate" as string]: `${index * 17}deg`
-                    } as CSSProperties
-                  }
-                />
-              ))}
-            </span>
-          ) : null}
-
+        <div className={`plan-progress-panel refined ${items.length > 0 && progress === 100 ? "complete" : ""}`}>
           <div className="plan-progress-kicker">
             <span className="section-label">Progress</span>
             <span className="mini-chip">
-              {completed.length}/{items.length}
+              {completedCount}/{items.length}
             </span>
           </div>
 
           <div className="plan-progress-head">
             <strong>{progress}%</strong>
             <p className="muted">
-              {progress === 100 ? "本周计划已全部完成。" : `还剩 ${remainingCount} 项待完成。`}
+              {items.length === 0
+                ? "当前还没有可以执行的计划项。"
+                : progress === 100
+                  ? "本周计划已经全部完成。"
+                  : `还剩 ${remainingCount} 项待完成。`}
             </p>
           </div>
 
@@ -513,33 +451,31 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
             <span className="plan-progress-ring-track" />
             <span
               className="plan-progress-ring-fill"
-              style={{ ["--progress" as string]: `${progress}` } as CSSProperties}
+              style={{ ["--progress" as string]: `${progress}` }}
             />
             <div className="plan-progress-ring-center">
-              <strong>{completed.length}</strong>
-              <small>done</small>
+              <strong>{completedCount}</strong>
+              <small>已完成</small>
             </div>
           </div>
 
           <div className="plan-progress-rail" aria-hidden="true">
             {items.map((day) => (
-              <span
-                key={day.id}
-                className={`plan-progress-step ${completed.includes(day.id) ? "done" : ""}`}
-              />
+              <span key={day.id} className={`plan-progress-step ${day.isCompleted ? "done" : ""}`} />
             ))}
           </div>
 
           <div className="plan-side-list compact">
             <div className="plan-side-row compact">
-              <span className="metric-label">Next</span>
-              <strong>{nextUp?.focus ?? "本周清单已清空"}</strong>
-              <small>{nextUp?.duration ?? "可以新增下一项计划，继续保持节奏。"}</small>
+              <span className="metric-label">下一项</span>
+              <strong>{nextUp?.focus ?? "本周清单已全部完成"}</strong>
+              <small>{nextUp?.duration ?? "你可以继续新增下一条计划，保持稳定节奏。"}</small>
             </div>
+
             <div className="plan-side-row compact">
-              <span className="metric-label">Rhythm</span>
-              <strong>{completed.length >= 2 ? "执行节奏稳定" : "先建立连续性"}</strong>
-              <small>先完成最容易稳定执行的项目，优先保证恢复和频率。</small>
+              <span className="metric-label">节奏</span>
+              <strong>{completedCount >= 2 ? "执行节奏较稳定" : "先建立连续性"}</strong>
+              <small>优先把最容易稳定执行的项目做完，再逐步增加训练量。</small>
             </div>
           </div>
         </div>

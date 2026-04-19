@@ -1,5 +1,11 @@
-import { Body, Controller, Get, Headers, Post } from "@nestjs/common";
-import { AdjustPlanDto, CompletePlanSessionDto, GeneratePlanDto } from "../dtos/plans.dto";
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post } from "@nestjs/common";
+import {
+  AdjustPlanDto,
+  CompletePlanSessionDto,
+  CreatePlanDayDto,
+  GeneratePlanDto,
+  UpdatePlanDayDto
+} from "../dtos/plans.dto";
 import { AppStoreService } from "../store/app-store.service";
 
 @Controller("plans")
@@ -13,8 +19,26 @@ export class PlansController {
 
   @Get("current")
   async getCurrentPlan(@Headers("x-user-id") userId?: string) {
-    const plan = await this.store.getCurrentPlan(userId);
-    return plan?.days ?? [];
+    return this.store.getCurrentPlanDays(userId);
+  }
+
+  @Post("current/day")
+  async createCurrentPlanDay(@Body() body: CreatePlanDayDto, @Headers("x-user-id") userId?: string) {
+    return this.store.createCurrentPlanDay(body, userId);
+  }
+
+  @Patch("current/day/:id")
+  async updateCurrentPlanDay(
+    @Param("id") dayId: string,
+    @Body() body: UpdatePlanDayDto,
+    @Headers("x-user-id") userId?: string
+  ) {
+    return this.store.updateCurrentPlanDay(dayId, body, userId);
+  }
+
+  @Delete("current/day/:id")
+  async deleteCurrentPlanDay(@Param("id") dayId: string, @Headers("x-user-id") userId?: string) {
+    return this.store.deleteCurrentPlanDay(dayId, userId);
   }
 
   @Post("current/adjust")

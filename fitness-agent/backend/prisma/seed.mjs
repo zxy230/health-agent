@@ -16,9 +16,11 @@ async function seedUserAndProfile() {
   const user = await prisma.user.upsert({
     where: { email: demoEmail },
     update: {
+      name: "Alex Chen",
       passwordHash: "demo-password"
     },
     create: {
+      name: "Alex Chen",
       email: demoEmail,
       passwordHash: "demo-password"
     }
@@ -178,28 +180,36 @@ async function seedWorkoutPlan(userId) {
             focus: "Upper body strength + core",
             duration: "55 min",
             exercises: ["Bench press 4x8", "Lat pulldown 4x10", "DB shoulder press 3x10", "Plank 3 rounds"],
-            recoveryTip: "Hydrate after training and stretch the upper body before bed"
+            recoveryTip: "Hydrate after training and stretch the upper body before bed",
+            isCompleted: true,
+            sortOrder: 0
           },
           {
             dayLabel: "Wednesday",
             focus: "Knee-friendly lower body",
             duration: "50 min",
             exercises: ["Box squat 4x8", "Romanian deadlift 4x10", "Glute bridge 3x12"],
-            recoveryTip: "Reduce squat depth and keep the day submaximal if the knee feels irritated"
+            recoveryTip: "Reduce squat depth and keep the day submaximal if the knee feels irritated",
+            isCompleted: false,
+            sortOrder: 1
           },
           {
             dayLabel: "Friday",
             focus: "Low-intensity cardio + core",
             duration: "40 min",
             exercises: ["Incline walk 30 min", "Dead bug 3x12", "Side plank 3x30 sec"],
-            recoveryTip: "Prioritize total steps and avoid adding extra fatigue"
+            recoveryTip: "Prioritize total steps and avoid adding extra fatigue",
+            isCompleted: false,
+            sortOrder: 2
           },
           {
             dayLabel: "Sunday",
             focus: "Full-body consistency session",
             duration: "50 min",
             exercises: ["Goblet squat 4x10", "Seated row 4x10", "Push-up 3x12", "Hip mobility 8 min"],
-            recoveryTip: "Keep 1-2 reps in reserve on every movement"
+            recoveryTip: "Keep 1-2 reps in reserve on every movement",
+            isCompleted: false,
+            sortOrder: 3
           }
         ]
       }

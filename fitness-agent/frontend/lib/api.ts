@@ -16,6 +16,7 @@ import type {
   WorkoutPlanDay
 } from "@/lib/types";
 import type { ExerciseCatalogItem } from "@/lib/exercise-catalog";
+import { readAuthSession } from "@/lib/auth";
 
 const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:3001";
 const agentBaseUrl = process.env.NEXT_PUBLIC_AGENT_URL ?? "http://localhost:8000";
@@ -49,6 +50,7 @@ interface RawPostMessageResponse {
 
 interface RawUserSnapshot {
   id: string;
+  name: string;
   email: string;
   profile?: HealthProfile | null;
 }
@@ -65,11 +67,38 @@ interface RawDatabaseExercise {
   recoveryNotes?: string[];
 }
 
-async function requestJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
+interface RequestOptions {
+  userId?: string;
+}
+
+function resolveUserId(userId?: string) {
+  if (userId) {
+    return userId;
+  }
+
+  return readAuthSession()?.user.id;
+}
+
+function buildHeaders(headers?: HeadersInit, userId?: string) {
+  const mergedHeaders = new Headers(headers);
+
+  if (userId) {
+    mergedHeaders.set("x-user-id", userId);
+  }
+
+  return mergedHeaders;
+}
+
+async function requestJson<T>(input: RequestInfo, init?: RequestInit, options?: RequestOptions): Promise<T> {
   let response: Response;
+  const userId = resolveUserId(options?.userId);
 
   try {
-    response = await fetch(input, { ...init, cache: "no-store" });
+    response = await fetch(input, {
+      ...init,
+      cache: "no-store",
+      headers: buildHeaders(init?.headers, userId)
+    });
   } catch (error) {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : "";
     const serviceLabel = url.startsWith(agentBaseUrl) ? "agent service" : "backend API";
@@ -85,7 +114,17 @@ async function requestJson<T>(input: RequestInfo, init?: RequestInit): Promise<T
     let detail = "";
 
     try {
-      detail = await response.text();
+      const rawText = await response.text();
+      if (!rawText) {
+        detail = "";
+      } else {
+        try {
+          const parsed = JSON.parse(rawText) as { message?: string | string[] };
+          detail = Array.isArray(parsed.message) ? parsed.message.join("; ") : parsed.message ?? rawText;
+        } catch {
+          detail = rawText;
+        }
+      }
     } catch {
       detail = "";
     }
@@ -126,6 +165,15 @@ function mapPostMessageResponse(response: RawPostMessageResponse): PostMessageRe
     toolEvents: (response.tool_events ?? []).map(mapToolEvent),
     nextActions: response.next_actions ?? [],
     riskLevel: response.risk_level
+  };
+}
+
+function mapUserSnapshot(user: RawUserSnapshot): UserSnapshot {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    profile: user.profile ?? null
   };
 }
 
@@ -199,32 +247,72 @@ function mapDatabaseExercise(item: RawDatabaseExercise): ExerciseCatalogItem {
   };
 }
 
-export async function getMe(): Promise<UserSnapshot> {
-  return requestJson<RawUserSnapshot>(`${backendBaseUrl}/me`);
+export async function getMe(userId?: string): Promise<UserSnapshot> {
+  const user = await requestJson<RawUserSnapshot>(`${backendBaseUrl}/me`, undefined, { userId });
+  return mapUserSnapshot(user);
 }
 
-export async function getBodyMetrics(): Promise<BodyMetricLog[]> {
-  return requestJson<BodyMetricLog[]>(`${backendBaseUrl}/logs/body-metrics`);
+export async function getBodyMetrics(userId?: string): Promise<BodyMetricLog[]> {
+  return requestJson<BodyMetricLog[]>(`${backendBaseUrl}/logs/body-metrics`, undefined, { userId });
 }
 
-export async function getDailyCheckins(): Promise<DailyCheckin[]> {
-  return requestJson<DailyCheckin[]>(`${backendBaseUrl}/logs/daily-checkins`);
+export async function getDailyCheckins(userId?: string): Promise<DailyCheckin[]> {
+  return requestJson<DailyCheckin[]>(`${backendBaseUrl}/logs/daily-checkins`, undefined, { userId });
 }
 
-export async function getWorkoutLogs(): Promise<WorkoutLog[]> {
-  return requestJson<WorkoutLog[]>(`${backendBaseUrl}/logs/workouts`);
+export async function getWorkoutLogs(userId?: string): Promise<WorkoutLog[]> {
+  return requestJson<WorkoutLog[]>(`${backendBaseUrl}/logs/workouts`, undefined, { userId });
 }
 
-export async function getDashboard(): Promise<DashboardSnapshot> {
-  return requestJson<DashboardSnapshot>(`${backendBaseUrl}/dashboard`);
+export async function getDashboard(userId?: string): Promise<DashboardSnapshot> {
+  return requestJson<DashboardSnapshot>(`${backendBaseUrl}/dashboard`, undefined, { userId });
 }
 
-export async function getCurrentPlan(): Promise<WorkoutPlanDay[]> {
-  return requestJson<WorkoutPlanDay[]>(`${backendBaseUrl}/plans/current`);
+export async function getCurrentPlan(userId?: string): Promise<WorkoutPlanDay[]> {
+  return requestJson<WorkoutPlanDay[]>(`${backendBaseUrl}/plans/current`, undefined, { userId });
 }
 
-export async function getTodayDietRecommendation(): Promise<DietRecommendationSnapshot> {
-  return requestJson<DietRecommendationSnapshot>(`${backendBaseUrl}/diet-recommendation/today`);
+type PlanDayPayload = {
+  dayLabel: string;
+  focus: string;
+  duration: string;
+  exercises: string[];
+  recoveryTip: string;
+};
+
+type UpdatePlanDayPayload = Partial<PlanDayPayload> & {
+  isCompleted?: boolean;
+};
+
+export async function createCurrentPlanDay(payload: PlanDayPayload): Promise<WorkoutPlanDay> {
+  return requestJson<WorkoutPlanDay>(`${backendBaseUrl}/plans/current/day`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function updateCurrentPlanDay(
+  dayId: string,
+  payload: UpdatePlanDayPayload
+): Promise<WorkoutPlanDay> {
+  return requestJson<WorkoutPlanDay>(`${backendBaseUrl}/plans/current/day/${dayId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteCurrentPlanDay(dayId: string): Promise<{ ok: boolean; id: string }> {
+  return requestJson<{ ok: boolean; id: string }>(`${backendBaseUrl}/plans/current/day/${dayId}`, {
+    method: "DELETE"
+  });
+}
+
+export async function getTodayDietRecommendation(userId?: string): Promise<DietRecommendationSnapshot> {
+  return requestJson<DietRecommendationSnapshot>(`${backendBaseUrl}/diet-recommendation/today`, undefined, {
+    userId
+  });
 }
 
 export async function getExercises(): Promise<ExerciseItem[]> {

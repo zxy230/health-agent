@@ -342,9 +342,10 @@ export function DietPlateCard({ recommendation }: { recommendation: DietRecommen
             <span className="section-label">饮食</span>
             <h3>今日推荐餐盘</h3>
             <p className="muted">
-              盘中只展示当前宏量对应的真实食物，让碳水、蛋白质和脂肪的来源一眼就能分清。
+              餐盘里只展示当前宏量对应的真实食物，让碳水、蛋白质和脂肪的来源一眼就能看清。
             </p>
           </div>
+
           <button className="ghost-button" type="button" onClick={() => openModal(activeMacro)}>
             查看详情
           </button>
@@ -418,8 +419,9 @@ export function DietPlateCard({ recommendation }: { recommendation: DietRecommen
               <div className="diet-kpi-card">
                 <span className="metric-label">目标热量</span>
                 <strong>{snapshot.targetCalorie} kcal</strong>
-                <small>先稳住结构，再去微调热量。</small>
+                <small>先稳定结构，再微调热量。</small>
               </div>
+
               <div className="diet-kpi-card">
                 <span className="metric-label">{calorieGap >= 0 ? "热量缺口" : "热量盈余"}</span>
                 <strong>{Math.abs(calorieGap)} kcal</strong>

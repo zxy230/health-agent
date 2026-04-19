@@ -88,6 +88,7 @@ export interface HealthProfile {
 
 export interface UserSnapshot {
   id: string;
+  name: string;
   email: string;
   profile: HealthProfile | null;
 }
@@ -124,11 +125,14 @@ export interface WorkoutLog {
 }
 
 export interface WorkoutPlanDay {
+  id: string;
   dayLabel: string;
   focus: string;
   duration: string;
   exercises: string[];
   recoveryTip: string;
+  isCompleted: boolean;
+  sortOrder: number;
 }
 
 export interface ExerciseItem {

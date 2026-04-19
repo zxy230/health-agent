@@ -2,22 +2,21 @@
 
 import type { AgentMessage } from "@/lib/types";
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createThread, postMessage } from "@/lib/api";
 
 const initialMessages: AgentMessage[] = [
   {
     id: "welcome",
     role: "assistant",
-    content:
-      "Ask about training, recovery, diet, or your current plan. Responses now depend on the live backend and agent services."
+    content: "可以直接问训练、恢复、饮食，或者让我帮你调整当前计划。这里的回复会实时依赖后端和 Agent 服务。"
   }
 ];
 
 const quickPrompts = [
-  "Should I train tonight if I slept badly and my legs are sore?",
-  "Adjust my current plan for a low-energy week.",
-  "What exercise should replace goblet squat if my knee feels irritated?"
+  "如果我昨晚没睡好，而且腿很酸，今晚还适合训练吗？",
+  "帮我把当前计划调整成低能量周版本。",
+  "膝盖有点不舒服的话，Goblet Squat 可以换成什么动作？"
 ];
 
 export default function ChatPage() {
@@ -25,7 +24,7 @@ export default function ChatPage() {
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<AgentMessage[]>(initialMessages);
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState("Connecting to the agent");
+  const [status, setStatus] = useState("正在连接助手");
 
   const mountedRef = useRef(true);
   const threadPromiseRef = useRef<Promise<string> | null>(null);
@@ -39,19 +38,7 @@ export default function ChatPage() {
     };
   }, []);
 
-  useEffect(() => {
-    void ensureThread();
-  }, []);
-
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      scrollAnchorRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-    });
-
-      return () => window.cancelAnimationFrame(frame);
-  }, [messages, busy]);
-
-  async function ensureThread(): Promise<string> {
+  const ensureThread = useCallback(async (): Promise<string> => {
     if (threadId) {
       return threadId;
     }
@@ -61,14 +48,14 @@ export default function ChatPage() {
         .then((result) => {
           if (mountedRef.current) {
             setThreadId(result.threadId);
-            setStatus("Agent connected");
+            setStatus("助手已连接");
           }
 
           return result.threadId;
         })
         .catch((error) => {
           if (mountedRef.current) {
-            const message = error instanceof Error ? error.message : "Unable to create chat thread";
+            const message = error instanceof Error ? error.message : "无法创建对话线程";
             setStatus(message);
           }
 
@@ -80,7 +67,19 @@ export default function ChatPage() {
     }
 
     return threadPromiseRef.current;
-  }
+  }, [threadId]);
+
+  useEffect(() => {
+    void ensureThread();
+  }, [ensureThread]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      scrollAnchorRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [messages, busy]);
 
   async function onSubmit() {
     if (!text.trim() || busy) {
@@ -97,7 +96,7 @@ export default function ChatPage() {
     setMessages((current) => [...current, userMessage]);
     setText("");
     setBusy(true);
-    setStatus("Sending message");
+    setStatus("正在发送");
 
     try {
       const activeThreadId = await ensureThread();
@@ -112,19 +111,19 @@ export default function ChatPage() {
           reasoningSummary: response.reasoningSummary
         }
       ]);
-      setStatus("Ready");
+      setStatus("已就绪");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
+      const message = error instanceof Error ? error.message : "未知错误";
       setMessages((current) => [
         ...current,
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: `Request failed: ${message}`,
-          reasoningSummary: "The page no longer fabricates demo responses. This error reflects the real backend or agent state."
+          content: `请求失败：${message}`,
+          reasoningSummary: "这里不再返回静态演示内容，报错反映的是当前后端或 Agent 的真实状态。"
         }
       ]);
-      setStatus("Request failed");
+      setStatus("请求失败");
     } finally {
       if (mountedRef.current) {
         setBusy(false);
@@ -139,7 +138,7 @@ export default function ChatPage() {
           <span className="section-label">Agent</span>
           <div className="chip-row">
             <span className={`status-pill ${busy ? "live" : "idle"}`}>{status}</span>
-            <span className="mini-chip">{threadId ? "Connected" : "No thread yet"}</span>
+            <span className="mini-chip">{threadId ? "已连接" : "尚未建立线程"}</span>
           </div>
         </div>
 
@@ -172,7 +171,7 @@ export default function ChatPage() {
               ) : (
                 <>
                   <div className="message-bubble user">
-                    <small>You</small>
+                    <small>你</small>
                     <div>{message.content}</div>
                     {message.reasoningSummary ? (
                       <p className="muted message-meta">{message.reasoningSummary}</p>
@@ -200,8 +199,9 @@ export default function ChatPage() {
                 void onSubmit();
               }
             }}
-            placeholder="Ask about training, recovery, diet, or exercise substitutions. Press Ctrl/Cmd + Enter to send."
+            placeholder="可以询问训练安排、恢复建议、饮食调整或动作替代。按 Ctrl/Cmd + Enter 发送。"
           />
+
           <div className="chat-composer-row">
             <div className="chip-row">
               {quickPrompts.map((prompt) => (
@@ -216,12 +216,13 @@ export default function ChatPage() {
                 </button>
               ))}
             </div>
+
             <div className="action-row">
               <button type="button" className="ghost-button" onClick={() => setText("")} disabled={busy}>
-                Clear
+                清空
               </button>
               <button type="button" className="button" onClick={onSubmit} disabled={busy}>
-                {busy ? "Sending..." : "Send"}
+                {busy ? "发送中..." : "发送"}
               </button>
             </div>
           </div>

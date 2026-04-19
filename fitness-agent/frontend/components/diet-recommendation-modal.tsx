@@ -55,6 +55,7 @@ function formatPercent(value: number, total: number) {
   if (!total) {
     return 0;
   }
+
   return Math.round((value / total) * 100);
 }
 
@@ -79,7 +80,7 @@ function DietDonutChart({
     <article className="diet-chart-card">
       <div className="diet-chart-head">
         <div>
-          <span className="section-label">Chart</span>
+          <span className="section-label">图表</span>
           <h4>{title}</h4>
         </div>
         <p className="muted">{subtitle}</p>
@@ -155,8 +156,7 @@ export function DietRecommendationModal({
     return null;
   }
 
-  const activeMealData =
-    snapshot.meals.find((meal) => meal.mealType === activeMeal) ?? snapshot.meals[0];
+  const activeMealData = snapshot.meals.find((meal) => meal.mealType === activeMeal) ?? snapshot.meals[0];
   const calorieGap = snapshot.targetCalorie - snapshot.totalCalorie;
   const calorieGapLabel = calorieGap >= 0 ? "热量缺口" : "热量盈余";
   const activeMealProtein = activeMealData.foods.reduce((sum, food) => sum + food.nutrition.protein, 0);
@@ -176,7 +176,7 @@ export function DietRecommendationModal({
           <div>
             <span className="section-label">饮食工作台</span>
             <h3 id="diet-modal-title">今日饮食建议</h3>
-            <p className="muted">把结构、餐次和替换方案放进同一块面板里，阅读更专注，也更适合快速决策。</p>
+            <p className="muted">把结构、餐次和替换方案放在同一块面板里，阅读更专注，也更适合快速决策。</p>
           </div>
           <button className="diet-icon-button" type="button" onClick={onClose} aria-label="关闭饮食建议">
             ×
@@ -186,7 +186,7 @@ export function DietRecommendationModal({
         <div className="diet-modal-body premium">
           <section className="diet-modal-hero refined">
             <div className="diet-hero-copy">
-              <span className="section-label">Overview</span>
+              <span className="section-label">总览</span>
               <h4>{snapshot.userGoal === "fat_loss" ? "减脂餐盘" : snapshot.userGoal}</h4>
               <p className="diet-hero-note">
                 {snapshot.fitTips ?? "保持高蛋白、适量碳水和稳定饱腹感，把饮食执行做得更轻松。"}
@@ -220,10 +220,10 @@ export function DietRecommendationModal({
           <section className="diet-insight-panel">
             <div className="diet-panel-head">
               <div className="section-copy">
-                <span className="section-label">Insights</span>
+                <span className="section-label">洞察</span>
                 <h4>整体结构</h4>
               </div>
-              <p className="muted">把今天的宏量构成、三餐热量分配和当前餐内结构合并在一组图中查看。</p>
+              <p className="muted">把今天的宏量构成、三餐热量分配和当前餐内结构放在一组图里查看。</p>
             </div>
 
             <div className="diet-chart-grid compact">
@@ -283,7 +283,7 @@ export function DietRecommendationModal({
           <section className="diet-meal-section refined">
             <div className="diet-panel-head">
               <div className="section-copy">
-                <span className="section-label">Meals</span>
+                <span className="section-label">餐次</span>
                 <h4>餐次拆解</h4>
               </div>
             </div>
@@ -315,7 +315,7 @@ export function DietRecommendationModal({
               <div className="diet-meal-stage">
                 <div className="diet-meal-stage-head">
                   <div>
-                    <span className="section-label">Meal Focus</span>
+                    <span className="section-label">当前餐次</span>
                     <h4>{mealLabelByType[activeMealData.mealType]}</h4>
                   </div>
                   <span className="mini-chip">{activeMealData.totalCalorie} kcal</span>
@@ -391,8 +391,8 @@ export function DietRecommendationModal({
                         </div>
 
                         <p className="diet-food-caption">
-                          这份食物以{macroLabelByKey[dominantMacro]}为主，蛋白质 {food.nutrition.protein}g，
-                          碳水 {food.nutrition.carbohydrate}g，脂肪 {food.nutrition.fat}g。
+                          这份食物以 {macroLabelByKey[dominantMacro]} 为主，蛋白质 {food.nutrition.protein}g，碳水{" "}
+                          {food.nutrition.carbohydrate}g，脂肪 {food.nutrition.fat}g。
                         </p>
 
                         {food.replaceable.length > 0 ? (
@@ -420,17 +420,14 @@ export function DietRecommendationModal({
           <section className="diet-detail-panel">
             <article className="diet-detail-block">
               <div className="section-copy">
-                <span className="section-label">Nutrition</span>
+                <span className="section-label">营养</span>
                 <h4>营养明细</h4>
               </div>
 
               <div className="diet-nutrient-stack">
                 {nutritionRows.map((row) => {
                   const values = snapshot.nutritionDetail[row.key];
-                  const progress = Math.max(
-                    0,
-                    Math.min(100, (values.recommend / Math.max(values.target, 1)) * 100)
-                  );
+                  const progress = Math.max(0, Math.min(100, (values.recommend / Math.max(values.target, 1)) * 100));
 
                   return (
                     <div className="diet-nutrient-row" key={row.key}>

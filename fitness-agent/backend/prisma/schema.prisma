@@ -9,6 +9,7 @@ datasource db {
 
 model User {
   id                String                   @id @default(cuid())
+  name              String                   @default("")
   email             String                   @unique
   passwordHash      String
   createdAt         DateTime                 @default(now())
@@ -103,6 +104,8 @@ model WorkoutPlanDay {
   duration      String
   exercises     Json
   recoveryTip   String
+  isCompleted   Boolean     @default(false)
+  sortOrder     Int         @default(0)
   workoutPlan   WorkoutPlan @relation(fields: [workoutPlanId], references: [id], onDelete: Cascade)
 }
 

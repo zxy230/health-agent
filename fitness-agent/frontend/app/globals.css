@@ -1026,17 +1026,20 @@ select:focus {
 .dashboard-summary-row div {
   display: grid;
   gap: 4px;
+  min-width: 0;
 }
 
 .dashboard-summary-row strong {
   font-size: 1.02rem;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .dashboard-summary-row small,
 .dashboard-burn-foot small {
   color: rgba(20, 20, 20, 0.56);
   line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .viz-card.wide {
@@ -1156,6 +1159,7 @@ select:focus {
 .todo-toolbar {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+  min-width: 0;
 }
 
 .todo-composer,
@@ -1274,6 +1278,7 @@ select:focus {
 
 .todo-main {
   grid-area: main;
+  min-width: 0;
 }
 
 .todo-toggle {
@@ -1339,6 +1344,19 @@ select:focus {
 .todo-main-head {
   display: grid;
   gap: 4px;
+  min-width: 0;
+}
+
+.todo-main h3,
+.todo-main p,
+.todo-note,
+.todo-exercise-chip,
+.todo-empty p,
+.todo-item-tools,
+.todo-detail-grid {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .todo-item-tools {
@@ -2406,7 +2424,7 @@ select:focus {
 
 .profile-layout {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
   gap: 36px;
   align-items: start;
 }
@@ -2415,6 +2433,7 @@ select:focus {
   position: sticky;
   top: 88px;
   align-self: start;
+  min-width: 0;
 }
 
 .profile-member-card,
@@ -2424,6 +2443,7 @@ select:focus {
   gap: 18px;
   padding-top: 22px;
   border-top: 1px solid rgba(0, 0, 0, 0.16);
+  min-width: 0;
 }
 
 .profile-content,
@@ -2437,6 +2457,7 @@ select:focus {
 
 .profile-content {
   gap: 30px;
+  min-width: 0;
 }
 
 .profile-member-top {
@@ -2455,17 +2476,21 @@ select:focus {
 .profile-member-copy {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
 .profile-member-copy h3 {
-  font-size: clamp(2.4rem, 5vw, 3.6rem);
-  line-height: 0.92;
+  font-size: clamp(2rem, 4.8vw, 3.4rem);
+  line-height: 0.98;
   letter-spacing: -0.05em;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .profile-member-note {
   color: rgba(20, 20, 20, 0.66);
   line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 
 .profile-member-highlight {
@@ -2491,13 +2516,14 @@ select:focus {
 
 .profile-member-grid {
   gap: 14px;
+  min-width: 0;
 }
 
 .profile-member-row,
 .profile-calorie-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 108px) minmax(0, 1fr);
+  align-items: start;
   gap: 12px;
   padding-top: 12px;
   border-top: 1px solid rgba(0, 0, 0, 0.08);
@@ -2507,6 +2533,29 @@ select:focus {
 .profile-calorie-row span,
 .profile-frequency-copy span {
   color: rgba(20, 20, 20, 0.54);
+}
+
+.profile-member-row strong,
+.profile-calorie-row strong,
+.profile-recent-card p,
+.profile-recent-card small,
+.profile-note-row p,
+.profile-member-tags,
+.profile-ledger-tag,
+.profile-trend-summary p,
+.profile-data-head p,
+.profile-frequency-copy,
+.profile-member-highlight,
+.profile-mini-metrics {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.profile-member-row strong,
+.profile-calorie-row strong {
+  justify-self: end;
+  text-align: right;
 }
 
 .profile-member-tags {
@@ -2889,6 +2938,7 @@ select:focus {
   font-size: 0.98rem;
   line-height: 1.38;
   color: #f5f4ef;
+  overflow-wrap: anywhere;
 }
 
 .exercise-mini-copy span,
@@ -2896,6 +2946,7 @@ select:focus {
   color: rgba(245, 244, 239, 0.64);
   font-size: 12px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .exercise-equipment-icon {
@@ -4156,10 +4207,12 @@ select:focus {
 .diet-chart-row div {
   display: grid;
   gap: 2px;
+  min-width: 0;
 }
 
 .diet-chart-row strong {
   font-size: 1rem;
+  overflow-wrap: anywhere;
 }
 
 .diet-chart-row small {
@@ -4313,6 +4366,16 @@ select:focus {
 .diet-replace-row {
   display: grid;
   gap: 12px;
+  min-width: 0;
+}
+
+.diet-food-head strong,
+.diet-food-caption,
+.diet-tip-list p,
+.shell-account-menu-head span,
+.shell-account-menu-head strong {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .diet-food-macrobar {

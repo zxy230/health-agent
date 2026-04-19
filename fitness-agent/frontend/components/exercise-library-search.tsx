@@ -27,10 +27,7 @@ export function ExerciseLibrarySearch({
 
   const triggerRef = useRef<HTMLButtonElement | null>(null);
 
-  const recommended = useMemo(
-    () => getRecommendedExercises(catalog, todayFocus),
-    [catalog, todayFocus]
-  );
+  const recommended = useMemo(() => getRecommendedExercises(catalog, todayFocus), [catalog, todayFocus]);
   const equipmentOptions = useMemo(() => buildEquipmentOptions(catalog), [catalog]);
 
   const primaryGroups = useMemo(
@@ -187,10 +184,7 @@ export function ExerciseLibrarySearch({
 
               <label className="exercise-select-field">
                 <span className="form-label">细分部位</span>
-                <select
-                  value={secondaryGroup}
-                  onChange={(event) => setSecondaryGroup(event.target.value)}
-                >
+                <select value={secondaryGroup} onChange={(event) => setSecondaryGroup(event.target.value)}>
                   {secondaryGroups.map((group) => (
                     <option key={group} value={group}>
                       {group}
@@ -229,7 +223,7 @@ export function ExerciseLibrarySearch({
               <div className="exercise-results-empty">
                 <span className="section-label">无结果</span>
                 <h3>没有找到匹配动作</h3>
-                <p className="muted">试着换个关键词，或放宽部位与器材筛选条件。</p>
+                <p className="muted">试着换个关键词，或者放宽部位与器材筛选条件。</p>
               </div>
             ) : (
               <>
@@ -284,11 +278,11 @@ export function ExerciseLibrarySearch({
                   <span className="section-label">{selectedExercise.equipment}</span>
                   <h3 id="exercise-modal-title">{selectedExercise.name}</h3>
                   <p className="muted">
-                    {selectedExercise.primaryGroup} / {selectedExercise.secondaryGroup} /{" "}
-                    {selectedExercise.level}
+                    {selectedExercise.primaryGroup} / {selectedExercise.secondaryGroup} / {selectedExercise.level}
                   </p>
                 </div>
               </div>
+
               <button
                 type="button"
                 className="diet-icon-button"

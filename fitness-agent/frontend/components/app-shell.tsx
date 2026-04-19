@@ -12,12 +12,7 @@ import {
   subscribeAuthChange,
   type AuthSession
 } from "@/lib/auth";
-import {
-  appRoutes,
-  authNavItems,
-  isAuthRoute,
-  primaryNavItems
-} from "@/lib/routes";
+import { appRoutes, authNavItems, isAuthRoute, primaryNavItems } from "@/lib/routes";
 import { consumeRouteTransition, type RouteTransitionPayload } from "@/lib/route-transition";
 
 function isActive(pathname: string, href: string) {
@@ -43,8 +38,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isAuthArriving, setIsAuthArriving] = useState(false);
-  const [authArrivalTransition, setAuthArrivalTransition] =
-    useState<RouteTransitionPayload | null>(null);
+  const [authArrivalTransition, setAuthArrivalTransition] = useState<RouteTransitionPayload | null>(null);
 
   useEffect(() => {
     const syncSession = () => setSession(readAuthSession());
@@ -74,12 +68,7 @@ export function AppShell({ children }: PropsWithChildren) {
     const isRecent = typeof transition.at === "number" && Date.now() - transition.at < 5000;
     const matchesTarget = pathname === transition.target || pathname.startsWith(`${transition.target}/`);
 
-    if (
-      transition.source !== "auth" ||
-      transition.style !== "activity-ring" ||
-      !isRecent ||
-      !matchesTarget
-    ) {
+    if (transition.source !== "auth" || transition.style !== "activity-ring" || !isRecent || !matchesTarget) {
       setIsAuthArriving(false);
       setAuthArrivalTransition(null);
       return;
@@ -148,6 +137,7 @@ export function AppShell({ children }: PropsWithChildren) {
     <div className="app-shell">
       <BrandLoader />
       {isAuthArriving ? <AuthArrivalLayer transition={authArrivalTransition} /> : null}
+
       <header className="shell-header">
         <div className={`shell-unified-bar ${isAuthArriving ? "is-auth-arriving" : ""}`}>
           <Link href={appRoutes.chat} className="brand-wordmark">
@@ -205,6 +195,7 @@ export function AppShell({ children }: PropsWithChildren) {
                       <strong>{session.user.name}</strong>
                       <span>{session.user.email}</span>
                     </div>
+
                     <Link
                       href={appRoutes.profile}
                       className="shell-account-menu-item"
@@ -213,6 +204,7 @@ export function AppShell({ children }: PropsWithChildren) {
                     >
                       个人档案
                     </Link>
+
                     <button
                       type="button"
                       className="shell-account-menu-item"
@@ -225,11 +217,7 @@ export function AppShell({ children }: PropsWithChildren) {
                 ) : null}
               </>
             ) : (
-              <Link
-                href={appRoutes.login}
-                className="shell-account-trigger is-empty"
-                aria-label="前往登录"
-              >
+              <Link href={appRoutes.login} className="shell-account-trigger is-empty" aria-label="前往登录">
                 <span className="shell-avatar" aria-hidden="true">
                   <span className="shell-avatar-empty" />
                 </span>

@@ -35,6 +35,18 @@ export interface AuthResult {
   session?: AuthSession;
 }
 
+interface AuthApiResponse {
+  ok?: boolean;
+  message?: string;
+  userId?: string;
+  email?: string;
+  token?: string;
+  name?: string;
+  goal?: string;
+  trainingDays?: string;
+  avatarUrl?: string;
+}
+
 interface AuthAdapter {
   implementation: "api";
   login(payload: LoginPayload): Promise<AuthResult>;
@@ -46,6 +58,7 @@ interface AuthAdapter {
 const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:3001";
 const authSessionStorageKey = "gympal-auth-session";
 const authChangeEvent = "gympal-auth-changed";
+const authUserCookieKey = "gympal-user-id";
 
 export const AUTH_ENDPOINTS = {
   login: "/auth/login",
@@ -98,12 +111,29 @@ function createSession(user: AuthUser, token?: string): AuthSession {
   };
 }
 
+function writeAuthCookie(userId: string) {
+  if (!canUseDom()) {
+    return;
+  }
+
+  document.cookie = `${authUserCookieKey}=${encodeURIComponent(userId)}; Path=/; SameSite=Lax; Max-Age=2592000`;
+}
+
+function clearAuthCookie() {
+  if (!canUseDom()) {
+    return;
+  }
+
+  document.cookie = `${authUserCookieKey}=; Path=/; SameSite=Lax; Max-Age=0`;
+}
+
 function storeSession(session: AuthSession) {
   if (!canUseDom()) {
     return;
   }
 
   window.localStorage.setItem(authSessionStorageKey, JSON.stringify(session));
+  writeAuthCookie(session.user.id);
   emitAuthChange();
 }
 
@@ -124,6 +154,7 @@ export function clearAuthSession() {
   }
 
   window.localStorage.removeItem(authSessionStorageKey);
+  clearAuthCookie();
   emitAuthChange();
 }
 
@@ -158,22 +189,12 @@ async function requestAuth(
     cache: "no-store"
   });
 
-  let result: {
-    ok?: boolean;
-    message?: string;
-    userId?: string;
-    email?: string;
-    token?: string;
-    name?: string;
-    goal?: string;
-    trainingDays?: string;
-    avatarUrl?: string;
-  } | null = null;
+  let result: AuthApiResponse = {};
 
   try {
-    result = (await response.json()) as typeof result;
+    result = (await response.json()) as AuthApiResponse;
   } catch {
-    result = null;
+    result = {};
   }
 
   if (!response.ok || result?.ok === false) {

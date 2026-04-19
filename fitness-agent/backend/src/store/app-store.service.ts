@@ -42,10 +42,68 @@ export interface WorkoutLogRecord {
   fatigueAfter?: string;
 }
 
+export interface WorkoutPlanDayRecord {
+  id: string;
+  dayLabel: string;
+  focus: string;
+  duration: string;
+  exercises: string[];
+  recoveryTip: string;
+  isCompleted: boolean;
+  sortOrder: number;
+}
+
+export interface CreateWorkoutPlanDayPayload {
+  dayLabel: string;
+  focus: string;
+  duration: string;
+  exercises: string[];
+  recoveryTip: string;
+}
+
+export interface UpdateWorkoutPlanDayPayload {
+  dayLabel?: string;
+  focus?: string;
+  duration?: string;
+  exercises?: string[];
+  recoveryTip?: string;
+  isCompleted?: boolean;
+}
+
 function normalizeDateToDay(input: Date) {
   const result = new Date(input);
   result.setHours(0, 0, 0, 0);
   return result;
+}
+
+function sanitizeStringArray(input: unknown) {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  return input.filter((value): value is string => typeof value === "string");
+}
+
+function mapWorkoutPlanDay(day: {
+  id: string;
+  dayLabel: string;
+  focus: string;
+  duration: string;
+  exercises: unknown;
+  recoveryTip: string;
+  isCompleted: boolean;
+  sortOrder: number;
+}): WorkoutPlanDayRecord {
+  return {
+    id: day.id,
+    dayLabel: day.dayLabel,
+    focus: day.focus,
+    duration: day.duration,
+    exercises: sanitizeStringArray(day.exercises),
+    recoveryTip: day.recoveryTip,
+    isCompleted: day.isCompleted,
+    sortOrder: day.sortOrder
+  };
 }
 
 function buildPlanDays() {
@@ -55,28 +113,36 @@ function buildPlanDays() {
       focus: "Upper body strength + core",
       duration: "55 min",
       exercises: ["Bench press 4x8", "Lat pulldown 4x10", "DB shoulder press 3x10", "Plank 3 rounds"],
-      recoveryTip: "Hydrate after training and stretch the upper body before bed."
+      recoveryTip: "Hydrate after training and stretch the upper body before bed.",
+      isCompleted: false,
+      sortOrder: 0
     },
     {
       dayLabel: "Wednesday",
       focus: "Knee-friendly lower body",
       duration: "50 min",
       exercises: ["Box squat 4x8", "Romanian deadlift 4x10", "Glute bridge 3x12"],
-      recoveryTip: "Reduce squat depth and keep the day submaximal if the knee feels irritated."
+      recoveryTip: "Reduce squat depth and keep the day submaximal if the knee feels irritated.",
+      isCompleted: false,
+      sortOrder: 1
     },
     {
       dayLabel: "Friday",
       focus: "Low-intensity cardio + core",
       duration: "40 min",
       exercises: ["Incline walk 30 min", "Dead bug 3x12", "Side plank 3x30 sec"],
-      recoveryTip: "Prioritize total steps and avoid adding extra fatigue."
+      recoveryTip: "Prioritize total steps and avoid adding extra fatigue.",
+      isCompleted: false,
+      sortOrder: 2
     },
     {
       dayLabel: "Sunday",
       focus: "Full-body consistency session",
       duration: "50 min",
       exercises: ["Goblet squat 4x10", "Seated row 4x10", "Push-up 3x12", "Hip mobility 8 min"],
-      recoveryTip: "Keep 1-2 reps in reserve on every movement."
+      recoveryTip: "Keep 1-2 reps in reserve on every movement.",
+      isCompleted: false,
+      sortOrder: 3
     }
   ];
 }
@@ -87,14 +153,21 @@ export class AppStoreService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async createUser(email: string, password: string) {
+  async createUser(email: string, password: string, name?: string) {
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
+      if (name && existing.name !== name.trim()) {
+        return this.prisma.user.update({
+          where: { id: existing.id },
+          data: { name: name.trim() }
+        });
+      }
       return existing;
     }
 
     return this.prisma.user.create({
       data: {
+        name: name?.trim() ?? "",
         email,
         passwordHash: password,
         healthProfile: {
@@ -210,7 +283,7 @@ export class AppStoreService {
       where: { userId: user.id, status: "active" },
       include: {
         days: {
-          orderBy: { dayLabel: "asc" }
+          orderBy: [{ sortOrder: "asc" }, { dayLabel: "asc" }]
         }
       }
     });
@@ -218,6 +291,94 @@ export class AppStoreService {
       `Loaded current workout plan from PostgreSQL for user=${user.id} found=${plan ? "yes" : "no"}`
     );
     return plan;
+  }
+
+  async getCurrentPlanDays(userId?: string) {
+    const plan = await this.getCurrentPlan(userId);
+    return (plan?.days ?? []).map(mapWorkoutPlanDay);
+  }
+
+  private async getRequiredCurrentPlan(userId?: string) {
+    const plan = await this.getCurrentPlan(userId);
+    if (!plan) {
+      throw new NotFoundException("No active workout plan found. Generate a plan first.");
+    }
+
+    return plan;
+  }
+
+  private async resequencePlanDays(workoutPlanId: string) {
+    const days = await this.prisma.workoutPlanDay.findMany({
+      where: { workoutPlanId },
+      orderBy: [{ sortOrder: "asc" }, { dayLabel: "asc" }]
+    });
+
+    await Promise.all(
+      days.map((day, index) =>
+        this.prisma.workoutPlanDay.update({
+          where: { id: day.id },
+          data: { sortOrder: index }
+        })
+      )
+    );
+  }
+
+  async createCurrentPlanDay(payload: CreateWorkoutPlanDayPayload, userId?: string) {
+    const plan = await this.getRequiredCurrentPlan(userId);
+    const nextSortOrder =
+      plan.days.reduce((max, day) => Math.max(max, day.sortOrder ?? 0), -1) + 1;
+
+    const created = await this.prisma.workoutPlanDay.create({
+      data: {
+        workoutPlanId: plan.id,
+        dayLabel: payload.dayLabel.trim(),
+        focus: payload.focus.trim(),
+        duration: payload.duration.trim(),
+        exercises: payload.exercises,
+        recoveryTip: payload.recoveryTip.trim(),
+        sortOrder: nextSortOrder,
+        isCompleted: false
+      }
+    });
+
+    return mapWorkoutPlanDay(created);
+  }
+
+  async updateCurrentPlanDay(dayId: string, payload: UpdateWorkoutPlanDayPayload, userId?: string) {
+    const plan = await this.getRequiredCurrentPlan(userId);
+    const currentDay = plan.days.find((day) => day.id === dayId);
+
+    if (!currentDay) {
+      throw new NotFoundException("Workout plan day was not found in the current active plan.");
+    }
+
+    const updated = await this.prisma.workoutPlanDay.update({
+      where: { id: dayId },
+      data: {
+        dayLabel: payload.dayLabel?.trim(),
+        focus: payload.focus?.trim(),
+        duration: payload.duration?.trim(),
+        exercises: payload.exercises,
+        recoveryTip: payload.recoveryTip?.trim(),
+        isCompleted: payload.isCompleted
+      }
+    });
+
+    return mapWorkoutPlanDay(updated);
+  }
+
+  async deleteCurrentPlanDay(dayId: string, userId?: string) {
+    const plan = await this.getRequiredCurrentPlan(userId);
+    const currentDay = plan.days.find((day) => day.id === dayId);
+
+    if (!currentDay) {
+      throw new NotFoundException("Workout plan day was not found in the current active plan.");
+    }
+
+    await this.prisma.workoutPlanDay.delete({ where: { id: dayId } });
+    await this.resequencePlanDays(plan.id);
+
+    return { ok: true, id: dayId };
   }
 
   async generatePlan(userId: string, goal = "fat_loss") {
@@ -240,7 +401,9 @@ export class AppStoreService {
             focus: day.focus,
             duration: day.duration,
             exercises: day.exercises,
-            recoveryTip: day.recoveryTip
+            recoveryTip: day.recoveryTip,
+            isCompleted: day.isCompleted,
+            sortOrder: day.sortOrder
           }))
         }
       },
@@ -274,6 +437,16 @@ export class AppStoreService {
   }
 
   async completeSession(userId: string, dayLabel: string) {
+    const plan = await this.getRequiredCurrentPlan(userId);
+    const targetDay = plan.days.find((day) => day.dayLabel === dayLabel);
+
+    if (targetDay) {
+      await this.prisma.workoutPlanDay.update({
+        where: { id: targetDay.id },
+        data: { isCompleted: true }
+      });
+    }
+
     return {
       ok: true,
       userId,

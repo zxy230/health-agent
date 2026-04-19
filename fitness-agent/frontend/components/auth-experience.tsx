@@ -5,12 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, startTransition, useEffect, useRef, useState } from "react";
 import { ActivityRings } from "@/components/activity-rings";
-import {
-  authAdapter,
-  type AuthMode,
-  type LoginPayload,
-  type RegisterPayload
-} from "@/lib/auth";
+import { authAdapter, type AuthMode, type LoginPayload, type RegisterPayload } from "@/lib/auth";
 import { appRoutes } from "@/lib/routes";
 import { storeRouteTransition } from "@/lib/route-transition";
 
@@ -80,15 +75,15 @@ const modeCopy = {
     submitLabel: "登录",
     demoLabel: "填入演示账号",
     helper: "demo@gympal.ai / gympal123",
-    success: "登录完成，正在进入训练主页。"
+    success: "登录完成，正在进入训练主界面。"
   },
   register: {
     title: "创建账号",
-    description: "设置目标后即可开始。",
+    description: "设置基础目标后即可开始。",
     submitLabel: "注册",
     demoLabel: "填入示例资料",
-    helper: "只保留开始训练所需的关键信息。",
-    success: "注册完成，正在进入训练主页。"
+    helper: "这里只保留开始训练所需的关键信息。",
+    success: "注册完成，正在进入训练主界面。"
   }
 } as const;
 
@@ -220,8 +215,7 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
   ];
 
   const isTransitioning = successPhase !== "idle";
-  const helperText =
-    successPhase !== "idle" ? modeCopy[mode].success : errorMessage || modeCopy[mode].helper;
+  const helperText = successPhase !== "idle" ? modeCopy[mode].success : errorMessage || modeCopy[mode].helper;
 
   const captureRouteMetrics = (): AuthRouteMetrics => {
     const targetSize = Math.min(window.innerWidth < 820 ? 220 : 248, window.innerWidth * 0.62);
@@ -267,14 +261,8 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
       window.clearTimeout(redirectTimerRef.current);
     }
 
-    settleTimerRef.current = window.setTimeout(
-      () => setSuccessPhase("centering"),
-      authRouteSettleDelayMs
-    );
-    routeAnimationTimerRef.current = window.setTimeout(
-      () => setSuccessPhase("routing"),
-      authRouteRoutingDelayMs
-    );
+    settleTimerRef.current = window.setTimeout(() => setSuccessPhase("centering"), authRouteSettleDelayMs);
+    routeAnimationTimerRef.current = window.setTimeout(() => setSuccessPhase("routing"), authRouteRoutingDelayMs);
     redirectTimerRef.current = window.setTimeout(() => {
       storeRouteTransition({
         source: "auth",
@@ -400,10 +388,7 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
           <Link href={appRoutes.login} className={`auth-switch-link ${mode === "login" ? "active" : ""}`}>
             登录
           </Link>
-          <Link
-            href={appRoutes.register}
-            className={`auth-switch-link ${mode === "register" ? "active" : ""}`}
-          >
+          <Link href={appRoutes.register} className={`auth-switch-link ${mode === "register" ? "active" : ""}`}>
             注册
           </Link>
         </div>
@@ -424,9 +409,7 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
                     autoComplete="name"
                     value={registerForm.name}
                     placeholder="Alex Chen"
-                    onChange={(event) =>
-                      setRegisterForm((current) => ({ ...current, name: event.target.value }))
-                    }
+                    onChange={(event) => setRegisterForm((current) => ({ ...current, name: event.target.value }))}
                   />
                 </label>
               ) : null}
@@ -488,9 +471,7 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
                           key={goal.value}
                           type="button"
                           className={`auth-choice-chip ${registerForm.goal === goal.value ? "active" : ""}`}
-                          onClick={() =>
-                            setRegisterForm((current) => ({ ...current, goal: goal.value }))
-                          }
+                          onClick={() => setRegisterForm((current) => ({ ...current, goal: goal.value }))}
                         >
                           {goal.label}
                         </button>
@@ -506,12 +487,7 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
                           key={option.value}
                           type="button"
                           className={`auth-choice-chip ${registerForm.trainingDays === option.value ? "active" : ""}`}
-                          onClick={() =>
-                            setRegisterForm((current) => ({
-                              ...current,
-                              trainingDays: option.value
-                            }))
-                          }
+                          onClick={() => setRegisterForm((current) => ({ ...current, trainingDays: option.value }))}
                         >
                           {option.label}
                         </button>
@@ -524,21 +500,11 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
               <label className="auth-check-row">
                 <input
                   type="checkbox"
-                  checked={
-                    mode === "login"
-                      ? Boolean(loginForm.remember)
-                      : Boolean(registerForm.remember)
-                  }
+                  checked={mode === "login" ? Boolean(loginForm.remember) : Boolean(registerForm.remember)}
                   onChange={(event) =>
                     mode === "login"
-                      ? setLoginForm((current) => ({
-                          ...current,
-                          remember: event.target.checked
-                        }))
-                      : setRegisterForm((current) => ({
-                          ...current,
-                          remember: event.target.checked
-                        }))
+                      ? setLoginForm((current) => ({ ...current, remember: event.target.checked }))
+                      : setRegisterForm((current) => ({ ...current, remember: event.target.checked }))
                   }
                 />
                 <span>保持登录</span>
@@ -556,6 +522,7 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
                 >
                   {isSubmitting ? "处理中..." : modeCopy[mode].submitLabel}
                 </button>
+
                 <button
                   className="ghost-button auth-secondary-button"
                   type="button"
@@ -568,11 +535,7 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
             </form>
           </div>
 
-          <AuthRingCluster
-            ringAnchorRef={ringAnchorRef}
-            progressRings={progressRings}
-            successPhase={successPhase}
-          />
+          <AuthRingCluster ringAnchorRef={ringAnchorRef} progressRings={progressRings} successPhase={successPhase} />
         </div>
       </section>
 
@@ -607,10 +570,7 @@ function AuthRingCluster({
       </div>
       <div className="auth-ring-meaning" aria-label="圆环进度说明">
         <div className="auth-ring-meaning-item compact">
-          <span
-            className="auth-ring-meaning-dot"
-            style={{ backgroundColor: dashboardRingAccents[0] }}
-          />
+          <span className="auth-ring-meaning-dot" style={{ backgroundColor: dashboardRingAccents[0] }} />
           <small>{ringMeaningCopy}</small>
         </div>
       </div>
@@ -646,12 +606,7 @@ function AuthRouteOrbitOverlay({
       <div className="auth-route-orbit-shell" style={orbitStyle}>
         <div className="auth-route-orbit-glow" />
         <svg viewBox="0 0 220 220" className="auth-route-orbit-svg" role="presentation">
-          <circle
-            className="auth-route-orbit-track"
-            cx="110"
-            cy="110"
-            r={authRouteOrbitRadius}
-          />
+          <circle className="auth-route-orbit-track" cx="110" cy="110" r={authRouteOrbitRadius} />
           <circle
             className="auth-route-orbit-progress"
             cx="110"

@@ -13,10 +13,16 @@ __pycache__/
 .env.local
 .env.*.local
 backend/.env
+backend/.env.*
 agent/.env
+agent/.env.*
 frontend/.env.local
+frontend/.env
+frontend/.env.*
 backend/prisma/dev.db
 .runlogs/
+start-local.ps1
+stop-local.ps1
 .npm-cache/
 .postgres-data/
 .tmp/
