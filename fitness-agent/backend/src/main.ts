@@ -1,0 +1,51 @@
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { ValidationPipe } from "@nestjs/common";
+import { NestFactory } from "@nestjs/core";
+import { AppModule } from "./app.module";
+
+function loadBackendEnv() {
+  const envPath = resolve(__dirname, "..", ".env");
+  if (!existsSync(envPath)) {
+    return;
+  }
+
+  const lines = readFileSync(envPath, "utf8").split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+
+    const separatorIndex = line.indexOf("=");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const key = line.slice(0, separatorIndex).trim();
+    const value = line.slice(separatorIndex + 1).trim();
+    if (!key || process.env[key] !== undefined) {
+      continue;
+    }
+
+    process.env[key] = value.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
+  }
+}
+
+async function bootstrap() {
+  loadBackendEnv();
+  const app = await NestFactory.create(AppModule);
+  app.enableCors({ origin: true, credentials: true });
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      transformOptions: {
+        enableImplicitConversion: true
+      }
+    })
+  );
+  await app.listen(Number(process.env.BACKEND_PORT ?? 3001));
+}
+
+bootstrap();
