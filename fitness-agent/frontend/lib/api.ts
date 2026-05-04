@@ -32,7 +32,7 @@ import type {
   WorkoutPlanDay
 } from "@/lib/types";
 import type { ExerciseCatalogItem } from "@/lib/exercise-catalog";
-import { readAuthAccessToken } from "@/lib/auth";
+import { clearAuthSession, readAuthAccessToken } from "@/lib/auth";
 
 const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://127.0.0.1:3001";
 const agentBaseUrl = process.env.NEXT_PUBLIC_AGENT_URL ?? "http://127.0.0.1:8000";
@@ -287,6 +287,15 @@ function buildHeaders(headers?: HeadersInit, authToken?: string) {
   return mergedHeaders;
 }
 
+function isAuthFailure(status: number, detail: string) {
+  if (status !== 401) {
+    return false;
+  }
+
+  const normalizedDetail = detail.toLowerCase();
+  return normalizedDetail.includes("token") || normalizedDetail.includes("auth") || normalizedDetail.includes("bearer");
+}
+
 async function requestJson<T>(input: RequestInfo, init?: RequestInit, options?: RequestOptions): Promise<T> {
   let response: Response;
   const authToken = resolveAuthToken(options?.authToken);
@@ -325,6 +334,11 @@ async function requestJson<T>(input: RequestInfo, init?: RequestInit, options?: 
       }
     } catch {
       detail = "";
+    }
+
+    if (isAuthFailure(response.status, detail)) {
+      clearAuthSession();
+      throw new Error("Authentication required. Please sign in again.");
     }
 
     throw new Error(detail || `Request failed with status ${response.status}`);
