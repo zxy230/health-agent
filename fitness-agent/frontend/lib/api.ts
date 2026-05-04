@@ -3,6 +3,10 @@ import type {
   AgentCard,
   AgentMessage,
   AgentProposalGroup,
+  AgentProductEventSnapshot,
+  AgentQualityCheckSnapshot,
+  AgentWorkItemConversionSnapshot,
+  AgentWorkItemSnapshot,
   BodyMetricLog,
   CoachSummarySnapshot,
   CoachingOutcomeSnapshot,
@@ -23,11 +27,12 @@ import type {
   StreamEvent,
   ToolEvent,
   UserSnapshot,
+  WorkspaceSummarySnapshot,
   WorkoutLog,
   WorkoutPlanDay
 } from "@/lib/types";
 import type { ExerciseCatalogItem } from "@/lib/exercise-catalog";
-import { readAuthAccessToken } from "@/lib/auth";
+import { clearAuthSession, readAuthAccessToken } from "@/lib/auth";
 
 const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://127.0.0.1:3001";
 const agentBaseUrl = process.env.NEXT_PUBLIC_AGENT_URL ?? "http://127.0.0.1:8000";
@@ -119,6 +124,65 @@ interface RawAgentProposalGroup {
   updated_at: string;
 }
 
+interface RawAgentWorkItem {
+  id: string;
+  type: string;
+  status: string;
+  priority: string;
+  source: string;
+  title: string;
+  summary: string;
+  reason: string;
+  payload?: Record<string, unknown>;
+  request_id?: string | null;
+  related_thread_id?: string | null;
+  related_review_id?: string | null;
+  related_proposal_group_id?: string | null;
+  related_outcome_id?: string | null;
+  converted_entity_type?: string | null;
+  converted_entity_id?: string | null;
+  expires_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface RawAgentProductEvent {
+  id: string;
+  event_type: string;
+  source: string;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  request_id?: string | null;
+  payload?: Record<string, unknown>;
+  created_at: string;
+}
+
+interface RawAgentQualityCheck {
+  id: string;
+  user_id: string;
+  thread_id?: string | null;
+  run_id?: string | null;
+  review_snapshot_id?: string | null;
+  proposal_group_id?: string | null;
+  scope: string;
+  status: string;
+  score: number;
+  blocked_reasons?: string[];
+  downgrade_reasons?: string[];
+  passed_policy_labels?: string[];
+  evidence?: Record<string, unknown>;
+  created_at: string;
+}
+
+interface RawAgentWorkItemConversion {
+  type: string;
+  request_id?: string | null;
+  review?: RawCoachingReviewSnapshot;
+  proposal_group?: RawAgentProposalGroup;
+  quality_check?: RawAgentQualityCheck;
+  superseded_proposal_group_ids?: string[];
+}
+
 interface RawUserSnapshot {
   id: string;
   name: string;
@@ -191,6 +255,20 @@ interface RawCoachSummarySnapshot {
   needsWeeklyReview: boolean;
 }
 
+interface RawWorkspaceSummarySnapshot {
+  coachSummary: RawCoachSummarySnapshot;
+  memorySummary?: RawMemorySummarySnapshot;
+  recentOutcomes?: CoachSummarySnapshot["recentOutcomes"];
+  recentFeedback?: CoachSummarySnapshot["recentRecommendationFeedback"];
+  pendingPackage?: RawCoachSummarySnapshot["pendingCoachingPackage"];
+  pendingWorkItems?: RawAgentWorkItem[];
+  latestQualityChecks?: RawAgentQualityCheck[];
+  latestProductEvents?: RawAgentProductEvent[];
+  todayPlan?: WorkoutPlanDay | null;
+  logGapSummary?: WorkspaceSummarySnapshot["logGapSummary"];
+  recommendedEntryPoints?: WorkspaceSummarySnapshot["recommendedEntryPoints"];
+}
+
 function resolveAuthToken(authToken?: string) {
   if (authToken) {
     return authToken;
@@ -207,6 +285,15 @@ function buildHeaders(headers?: HeadersInit, authToken?: string) {
   }
 
   return mergedHeaders;
+}
+
+function isAuthFailure(status: number, detail: string) {
+  if (status !== 401) {
+    return false;
+  }
+
+  const normalizedDetail = detail.toLowerCase();
+  return normalizedDetail.includes("token") || normalizedDetail.includes("auth") || normalizedDetail.includes("bearer");
 }
 
 async function requestJson<T>(input: RequestInfo, init?: RequestInit, options?: RequestOptions): Promise<T> {
@@ -247,6 +334,11 @@ async function requestJson<T>(input: RequestInfo, init?: RequestInit, options?: 
       }
     } catch {
       detail = "";
+    }
+
+    if (isAuthFailure(response.status, detail)) {
+      clearAuthSession();
+      throw new Error("Authentication required. Please sign in again.");
     }
 
     throw new Error(detail || `Request failed with status ${response.status}`);
@@ -355,6 +447,73 @@ function mapProposalGroup(group: RawAgentProposalGroup): AgentProposalGroup {
   };
 }
 
+function mapAgentWorkItem(item: RawAgentWorkItem): AgentWorkItemSnapshot {
+  return {
+    id: item.id,
+    type: item.type,
+    status: item.status,
+    priority: item.priority,
+    source: item.source,
+    title: item.title,
+    summary: item.summary,
+    reason: item.reason,
+    payload: item.payload ?? {},
+    requestId: item.request_id ?? null,
+    relatedThreadId: item.related_thread_id ?? null,
+    relatedReviewId: item.related_review_id ?? null,
+    relatedProposalGroupId: item.related_proposal_group_id ?? null,
+    relatedOutcomeId: item.related_outcome_id ?? null,
+    convertedEntityType: item.converted_entity_type ?? null,
+    convertedEntityId: item.converted_entity_id ?? null,
+    expiresAt: item.expires_at ?? null,
+    createdAt: item.created_at,
+    updatedAt: item.updated_at
+  };
+}
+
+function mapAgentProductEvent(event: RawAgentProductEvent): AgentProductEventSnapshot {
+  return {
+    id: event.id,
+    eventType: event.event_type,
+    source: event.source,
+    entityType: event.entity_type ?? null,
+    entityId: event.entity_id ?? null,
+    requestId: event.request_id ?? null,
+    payload: event.payload ?? {},
+    createdAt: event.created_at
+  };
+}
+
+function mapAgentQualityCheck(check: RawAgentQualityCheck): AgentQualityCheckSnapshot {
+  return {
+    id: check.id,
+    userId: check.user_id,
+    threadId: check.thread_id ?? null,
+    runId: check.run_id ?? null,
+    reviewSnapshotId: check.review_snapshot_id ?? null,
+    proposalGroupId: check.proposal_group_id ?? null,
+    scope: check.scope,
+    status: check.status,
+    score: check.score,
+    blockedReasons: check.blocked_reasons ?? [],
+    downgradeReasons: check.downgrade_reasons ?? [],
+    passedPolicyLabels: check.passed_policy_labels ?? [],
+    evidence: check.evidence ?? {},
+    createdAt: check.created_at
+  };
+}
+
+function mapAgentWorkItemConversion(conversion: RawAgentWorkItemConversion): AgentWorkItemConversionSnapshot {
+  return {
+    type: conversion.type,
+    requestId: conversion.request_id ?? null,
+    review: conversion.review ? mapCoachingReview(conversion.review) : undefined,
+    proposalGroup: conversion.proposal_group ? mapProposalGroup(conversion.proposal_group) : undefined,
+    qualityCheck: conversion.quality_check ? mapAgentQualityCheck(conversion.quality_check) : undefined,
+    supersededProposalGroupIds: conversion.superseded_proposal_group_ids ?? []
+  };
+}
+
 function mapAdviceSnapshot(snapshot: RawAdviceSnapshot): AdviceSnapshot {
   return {
     id: snapshot.id,
@@ -402,6 +561,28 @@ function mapCoachSummary(snapshot: RawCoachSummarySnapshot): CoachSummarySnapsho
     recentRecommendationFeedback: snapshot.recentRecommendationFeedback ?? [],
     pendingCoachingPackage: snapshot.pendingCoachingPackage,
     needsWeeklyReview: Boolean(snapshot.needsWeeklyReview)
+  };
+}
+
+function mapWorkspaceSummary(snapshot: RawWorkspaceSummarySnapshot): WorkspaceSummarySnapshot {
+  const coachSummary = mapCoachSummary(snapshot.coachSummary);
+  return {
+    coachSummary,
+    memorySummary: snapshot.memorySummary ?? coachSummary.memorySummary,
+    recentOutcomes: snapshot.recentOutcomes ?? coachSummary.recentOutcomes,
+    recentFeedback: snapshot.recentFeedback ?? coachSummary.recentRecommendationFeedback,
+    pendingPackage: snapshot.pendingPackage ?? coachSummary.pendingCoachingPackage,
+    pendingWorkItems: (snapshot.pendingWorkItems ?? []).map(mapAgentWorkItem),
+    latestQualityChecks: (snapshot.latestQualityChecks ?? []).map(mapAgentQualityCheck),
+    latestProductEvents: (snapshot.latestProductEvents ?? []).map(mapAgentProductEvent),
+    todayPlan: snapshot.todayPlan ?? null,
+    logGapSummary: snapshot.logGapSummary ?? {
+      latestCheckinAt: null,
+      latestWorkoutAt: null,
+      needsCheckin: false,
+      needsWorkoutLog: false
+    },
+    recommendedEntryPoints: snapshot.recommendedEntryPoints ?? []
   };
 }
 
@@ -514,6 +695,123 @@ export async function getCoachSummary(authToken?: string): Promise<CoachSummaryS
     authToken
   });
   return mapCoachSummary(snapshot);
+}
+
+export async function getWorkspaceSummary(authToken?: string): Promise<WorkspaceSummarySnapshot> {
+  const snapshot = await requestJson<RawWorkspaceSummarySnapshot>(
+    `${backendBaseUrl}/agent/context/workspace-summary`,
+    undefined,
+    { authToken }
+  );
+  return mapWorkspaceSummary(snapshot);
+}
+
+export async function getAgentWorkItems(authToken?: string): Promise<AgentWorkItemSnapshot[]> {
+  const items = await requestJson<RawAgentWorkItem[]>(`${backendBaseUrl}/agent/work-items`, undefined, { authToken });
+  return items.map(mapAgentWorkItem);
+}
+
+export async function refreshAgentWorkItems(): Promise<{
+  requestId: string;
+  created: AgentWorkItemSnapshot[];
+  updated: AgentWorkItemSnapshot[];
+  skipped: Array<{ type: string; reason: string }>;
+  expired: Array<{ id: string; type: string; previous_status: string }>;
+  pending: AgentWorkItemSnapshot[];
+}> {
+  const result = await requestJson<{
+    requestId: string;
+    created: RawAgentWorkItem[];
+    updated: RawAgentWorkItem[];
+    skipped: Array<{ type: string; reason: string }>;
+    expired: Array<{ id: string; type: string; previous_status: string }>;
+    pending: RawAgentWorkItem[];
+  }>(`${backendBaseUrl}/agent/work-items/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source: "dashboard_refresh" })
+  });
+
+  return {
+    requestId: result.requestId,
+    created: result.created.map(mapAgentWorkItem),
+    updated: result.updated.map(mapAgentWorkItem),
+    skipped: result.skipped,
+    expired: result.expired,
+    pending: result.pending.map(mapAgentWorkItem)
+  };
+}
+
+export async function openAgentWorkItem(workItemId: string): Promise<{
+  workItem: AgentWorkItemSnapshot;
+  navigation: { route: string; intent: string };
+}> {
+  const result = await requestJson<{
+    workItem: RawAgentWorkItem;
+    navigation: { route: string; intent: string };
+  }>(`${backendBaseUrl}/agent/work-items/${workItemId}/open`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({})
+  });
+
+  return {
+    workItem: mapAgentWorkItem(result.workItem),
+    navigation: result.navigation
+  };
+}
+
+export async function dismissAgentWorkItem(workItemId: string, reason?: string): Promise<AgentWorkItemSnapshot> {
+  const result = await requestJson<RawAgentWorkItem>(`${backendBaseUrl}/agent/work-items/${workItemId}/dismiss`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason })
+  });
+  return mapAgentWorkItem(result);
+}
+
+export async function convertAgentWorkItem(
+  workItemId: string,
+  payload?: { requestId?: string | null; revisionReason?: string | null }
+): Promise<{
+  workItem: AgentWorkItemSnapshot;
+  conversion: AgentWorkItemConversionSnapshot;
+}> {
+  const result = await requestJson<{
+    workItem: RawAgentWorkItem;
+    conversion: RawAgentWorkItemConversion;
+  }>(`${backendBaseUrl}/agent/work-items/${workItemId}/convert`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      requestId: payload?.requestId ?? undefined,
+      revisionReason: payload?.revisionReason ?? undefined
+    })
+  });
+
+  return {
+    workItem: mapAgentWorkItem(result.workItem),
+    conversion: mapAgentWorkItemConversion(result.conversion)
+  };
+}
+
+export async function getQualityChecksForRun(runId: string, authToken?: string): Promise<AgentQualityCheckSnapshot[]> {
+  const checks = await requestJson<RawAgentQualityCheck[]>(`${backendBaseUrl}/agent/quality/runs/${runId}`, undefined, {
+    authToken
+  });
+  return checks.map(mapAgentQualityCheck);
+}
+
+export async function getQualityChecksForProposalGroup(
+  proposalGroupId: string,
+  authToken?: string
+): Promise<AgentQualityCheckSnapshot[]> {
+  const checks = await requestJson<RawAgentQualityCheck[]>(
+    `${backendBaseUrl}/agent/quality/proposal-groups/${proposalGroupId}`,
+    undefined,
+    { authToken }
+  );
+  return checks.map(mapAgentQualityCheck);
 }
 
 type PlanDayPayload = {

@@ -1,4 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
 import {
   CreateAgentProposalGroupDto,
@@ -6,13 +7,16 @@ import {
   CreateAgentProposalDto,
   CreateCoachingPackageDto,
   CreateCoachingReviewSnapshotDto,
-  CreateAgentRunDto
+  CreateAgentRunDto,
+  ReviseCoachingReviewDto
 } from "../dtos/agent.dto";
 import { AppStoreService } from "../store/app-store.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { CoachingOutcomeService } from "./coaching-outcome.service";
 import { CoachingStrategyService } from "./coaching-strategy.service";
 import { AgentPolicyService } from "./agent-policy.service";
+import { AgentQualityService } from "./agent-quality.service";
+import { AgentProductEventService } from "./agent-product-event.service";
 
 type TransactionClient = Prisma.TransactionClient | PrismaClient;
 const proposalGroupExecutionInclude = Prisma.validator<Prisma.AgentProposalGroupInclude>()({
@@ -50,6 +54,10 @@ function normalizeArray(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function readJsonObject(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
 @Injectable()
 export class AgentStateService {
   constructor(
@@ -57,7 +65,9 @@ export class AgentStateService {
     private readonly appStore: AppStoreService,
     private readonly outcomeService: CoachingOutcomeService,
     private readonly strategyService: CoachingStrategyService,
-    private readonly policyService: AgentPolicyService = new AgentPolicyService()
+    private readonly policyService: AgentPolicyService = new AgentPolicyService(),
+    private readonly qualityService: AgentQualityService = new AgentQualityService(prisma, appStore, policyService),
+    private readonly productEvents: AgentProductEventService = new AgentProductEventService(prisma)
   ) {}
 
   private async getActor(userId?: string) {
@@ -311,6 +321,145 @@ export class AgentStateService {
     };
   }
 
+  private async findSupersedableRevisionGroups(
+    client: TransactionClient,
+    review: Parameters<AgentStateService["mapCoachingReview"]>[0],
+    sourceProposalGroupId?: string | null
+  ) {
+    const candidates = await client.agentProposalGroup.findMany({
+      where: {
+        userId: review.userId,
+        threadId: review.threadId,
+        status: { in: ["pending", "approved"] }
+      },
+      include: {
+        proposals: { orderBy: { createdAt: "asc" } },
+        reviewSnapshot: true
+      },
+      orderBy: { createdAt: "asc" }
+    });
+
+    return candidates.filter((group) => {
+      const inputSnapshot = readJsonObject(group.reviewSnapshot?.inputSnapshot);
+      const preview = readJsonObject(group.preview);
+      const revision = readJsonObject(preview.revision);
+
+      return (
+        group.reviewSnapshotId === review.id ||
+        inputSnapshot.sourceReviewId === review.id ||
+        revision.sourceReviewId === review.id ||
+        group.id === sourceProposalGroupId
+      );
+    });
+  }
+
+  private async lockRevisionSource(client: TransactionClient, reviewId: string) {
+    // Serialize revision creation per source review so concurrent requests leave one executable latest package.
+    await client.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext('agent_revision'), hashtext(${reviewId}))`);
+  }
+
+  private buildRevisionPackageDraft(input: {
+    review: Parameters<AgentStateService["mapCoachingReview"]>[0];
+    sourceGroup?: { id: string; status: string } | null;
+    runId: string;
+    requestId: string;
+    revisionReason: string;
+  }) {
+    const { review, sourceGroup, runId, requestId, revisionReason } = input;
+    const revisionSummary = [
+      "A conservative revision was generated from the prior coaching review.",
+      `Reason: ${revisionReason}.`,
+      "The previous executable package, if any, is no longer confirmable."
+    ].join(" ");
+    const changes = [
+      "Reduce the immediate impact of the recommendation.",
+      "Prefer an advice snapshot before making plan or diet changes.",
+      "Keep the new package behind explicit confirmation."
+    ];
+    const reviewPayload: CreateCoachingReviewSnapshotDto = {
+      runId,
+      type: `${review.type}_revision`,
+      title: `Revision: ${review.title}`,
+      summary: revisionSummary,
+      adherenceScore: review.adherenceScore ?? undefined,
+      riskFlags: [...new Set(["revision", "conservative_adjustment", ...review.riskFlags])],
+      focusAreas: review.focusAreas.length ? review.focusAreas : ["recovery", "consistency"],
+      recommendationTags: [...new Set(["revision", "conservative_adjustment", ...review.recommendationTags])],
+      inputSnapshot: {
+        sourceReviewId: review.id,
+        sourceProposalGroupId: sourceGroup?.id ?? null,
+        sourceProposalGroupStatus: sourceGroup?.status ?? null,
+        revisionReason,
+        requestId
+      },
+      resultSnapshot: {
+        previousSummary: review.summary,
+        revisedSummary: revisionSummary,
+        changes
+      },
+      strategyTemplateId: review.strategyTemplateId ?? undefined,
+      strategyVersion: review.strategyVersion ?? undefined,
+      evidence: {
+        sourceReviewId: review.id,
+        sourceProposalGroupId: sourceGroup?.id ?? null,
+        revisionReason,
+        requestedAt: new Date().toISOString()
+      },
+      uncertaintyFlags: [...new Set(["revision_requires_confirmation", ...review.uncertaintyFlags])]
+    };
+    const proposalGroupPayload: CreateAgentProposalGroupDto = {
+      runId,
+      title: "Conservative revision package",
+      summary: "Create a lower-impact advice snapshot before any stronger plan change.",
+      preview: {
+        revision: {
+          sourceReviewId: review.id,
+          sourceProposalGroupId: sourceGroup?.id ?? null,
+          previousStatus: sourceGroup?.status ?? null,
+          previousSummary: review.summary,
+          revisedSummary: revisionSummary,
+          changes
+        }
+      },
+      riskLevel: "low",
+      strategyTemplateId: review.strategyTemplateId ?? undefined,
+      strategyVersion: review.strategyVersion ?? undefined,
+      policyLabels: ["phase4_revision", "conservative_adjustment"],
+      expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 4).toISOString()
+    };
+    const proposalPayload: CreateAgentProposalDto = {
+      actionType: "create_advice_snapshot",
+      entityType: "advice_snapshot",
+      title: "Create revised coaching advice",
+      summary: "Persist the safer revised coaching guidance as an advice snapshot.",
+      payload: {
+        type: "revision",
+        priority: "medium",
+        summary: revisionSummary,
+        reasoningTags: ["phase4_revision", revisionReason],
+        actionItems: changes,
+        riskFlags: ["conservative_revision"]
+      },
+      preview: {
+        summary: revisionSummary,
+        changes
+      },
+      riskLevel: "low"
+    };
+    const packagePayload: CreateCoachingPackageDto = {
+      review: reviewPayload,
+      proposalGroup: proposalGroupPayload,
+      proposals: [proposalPayload]
+    };
+
+    return {
+      reviewPayload,
+      proposalGroupPayload,
+      proposalPayload,
+      packagePayload
+    };
+  }
+
   async createThread(title?: string, userId?: string) {
     const actor = await this.getActor(userId);
     return this.prisma.agentThread.create({
@@ -427,6 +576,13 @@ export class AgentStateService {
       maxRiskLevel([proposal.riskLevel, proposalPolicies[index]?.risk])
     );
     const groupRiskLevel = maxRiskLevel([payload.proposalGroup.riskLevel, ...proposalRiskLevels]);
+    const effectiveReviewPayload = {
+      ...payload.review,
+      evidence: payload.review.evidence ?? strategyDecision.evidence,
+      uncertaintyFlags: payload.review.uncertaintyFlags ?? strategyDecision.uncertaintyFlags,
+      strategyTemplateId,
+      strategyVersion
+    };
 
     const created = await this.prisma.$transaction(async (tx) => {
       const review = await tx.coachingReviewSnapshot.create({
@@ -448,10 +604,48 @@ export class AgentStateService {
           resultSnapshot: asJson(payload.review.resultSnapshot ?? {}),
           strategyTemplateId,
           strategyVersion,
-          evidence: asJson(payload.review.evidence ?? strategyDecision.evidence),
-          uncertaintyFlags: payload.review.uncertaintyFlags ?? strategyDecision.uncertaintyFlags
+          evidence: asJson(effectiveReviewPayload.evidence ?? {}),
+          uncertaintyFlags: effectiveReviewPayload.uncertaintyFlags ?? []
         }
       });
+
+      const preliminaryQualityDraft = this.qualityService.buildPackageQualityDraft({
+        userId: actor.id,
+        threadId: thread.id,
+        runId: payload.proposalGroup.runId,
+        review: effectiveReviewPayload,
+        packagePayload: payload,
+        riskLevel: groupRiskLevel,
+        policyLabels,
+        reviewSnapshotId: review.id
+      });
+
+      if (preliminaryQualityDraft.status === "blocked") {
+        const qualityCheck = await this.qualityService.createQualityCheck(preliminaryQualityDraft, tx);
+        await this.productEvents.record(
+          actor.id,
+          {
+            eventType: "quality_blocked",
+            source: "quality_gate",
+            entityType: "coaching_review_snapshot",
+            entityId: review.id,
+            payload: {
+              runId: payload.proposalGroup.runId,
+              scope: qualityCheck.scope,
+              score: qualityCheck.score,
+              blockedReasons: qualityCheck.blocked_reasons,
+              downgradeReasons: qualityCheck.downgrade_reasons
+            }
+          },
+          tx
+        );
+
+        return {
+          status: "blocked" as const,
+          review,
+          qualityCheck
+        };
+      }
 
       const proposalGroup = await tx.agentProposalGroup.create({
         data: {
@@ -500,12 +694,31 @@ export class AgentStateService {
         )
       );
 
+      const qualityDraft = this.qualityService.buildPackageQualityDraft({
+        userId: actor.id,
+        threadId: thread.id,
+        runId: payload.proposalGroup.runId,
+        review: effectiveReviewPayload,
+        packagePayload: payload,
+        riskLevel: groupRiskLevel,
+        policyLabels,
+        reviewSnapshotId: review.id,
+        proposalGroupId: proposalGroup.id
+      });
+      const qualityCheck = await this.qualityService.createQualityCheck(qualityDraft, tx);
+
       return {
+        status: "created" as const,
         review,
         proposalGroup,
-        proposals
+        proposals,
+        qualityCheck
       };
     });
+
+    if (created.status === "blocked") {
+      throw new ConflictException("Coaching package was blocked by the Phase 4 quality gate.");
+    }
 
     return {
       review: this.mapCoachingReview(created.review),
@@ -513,7 +726,8 @@ export class AgentStateService {
         ...created.proposalGroup,
         proposals: created.proposals
       }),
-      proposals: created.proposals.map((proposal) => this.mapProposal(proposal))
+      proposals: created.proposals.map((proposal) => this.mapProposal(proposal)),
+      quality_check: created.qualityCheck
     };
   }
 
@@ -589,31 +803,260 @@ export class AgentStateService {
       await this.getRunForActor(payload.runId, actor.id);
     }
 
-    const review = await this.prisma.coachingReviewSnapshot.create({
-      data: {
+    const created = await this.prisma.$transaction(async (tx) => {
+      const review = await tx.coachingReviewSnapshot.create({
+        data: {
+          userId: actor.id,
+          threadId: thread.id,
+          runId: payload.runId,
+          type: payload.type,
+          status: payload.status ?? "draft",
+          periodStart: payload.periodStart ? new Date(payload.periodStart) : undefined,
+          periodEnd: payload.periodEnd ? new Date(payload.periodEnd) : undefined,
+          title: payload.title,
+          summary: payload.summary,
+          adherenceScore: payload.adherenceScore,
+          riskFlags: payload.riskFlags ?? [],
+          focusAreas: payload.focusAreas ?? [],
+          recommendationTags: payload.recommendationTags ?? [],
+          inputSnapshot: asJson(payload.inputSnapshot ?? {}),
+          resultSnapshot: asJson(payload.resultSnapshot ?? {}),
+          strategyTemplateId: payload.strategyTemplateId,
+          strategyVersion: payload.strategyVersion,
+          evidence: payload.evidence ? asJson(payload.evidence) : undefined,
+          uncertaintyFlags: payload.uncertaintyFlags ?? []
+        }
+      });
+      const qualityDraft = this.qualityService.buildReviewQualityDraft({
         userId: actor.id,
         threadId: thread.id,
         runId: payload.runId,
-        type: payload.type,
-        status: payload.status ?? "draft",
-        periodStart: payload.periodStart ? new Date(payload.periodStart) : undefined,
-        periodEnd: payload.periodEnd ? new Date(payload.periodEnd) : undefined,
-        title: payload.title,
-        summary: payload.summary,
-        adherenceScore: payload.adherenceScore,
-        riskFlags: payload.riskFlags ?? [],
-        focusAreas: payload.focusAreas ?? [],
-        recommendationTags: payload.recommendationTags ?? [],
-        inputSnapshot: asJson(payload.inputSnapshot ?? {}),
-        resultSnapshot: asJson(payload.resultSnapshot ?? {}),
-        strategyTemplateId: payload.strategyTemplateId,
-        strategyVersion: payload.strategyVersion,
-        evidence: payload.evidence ? asJson(payload.evidence) : undefined,
-        uncertaintyFlags: payload.uncertaintyFlags ?? []
-      }
+        reviewSnapshotId: review.id,
+        review: payload
+      });
+      const qualityCheck = await this.qualityService.createQualityCheck(qualityDraft, tx);
+
+      return { review, qualityCheck };
     });
 
-    return this.mapCoachingReview(review);
+    return {
+      ...this.mapCoachingReview(created.review),
+      quality_check: created.qualityCheck
+    };
+  }
+
+  async reviseCoachingReview(reviewId: string, payload: ReviseCoachingReviewDto, userId?: string, client?: TransactionClient) {
+    const db = client ?? this.prisma;
+    const actor = await this.getActor(userId);
+    const review = await db.coachingReviewSnapshot.findFirst({
+      where: { id: reviewId, userId: actor.id }
+    });
+
+    if (!review) {
+      throw new NotFoundException("Coaching review snapshot not found.");
+    }
+
+    const requestId = payload.requestId?.trim() || randomUUID();
+    const revisionReason = payload.revisionReason?.trim() || payload.reason?.trim() || "manual_revision";
+
+    const sourceGroup = payload.sourceProposalGroupId
+      ? await db.agentProposalGroup.findFirst({
+          where: { id: payload.sourceProposalGroupId, userId: actor.id },
+          include: proposalGroupExecutionInclude
+        })
+      : await db.agentProposalGroup.findFirst({
+          where: { userId: actor.id, reviewSnapshotId: review.id },
+          include: proposalGroupExecutionInclude,
+          orderBy: { createdAt: "desc" }
+        });
+
+    if (payload.sourceProposalGroupId && !sourceGroup) {
+      throw new NotFoundException("Agent proposal group not found.");
+    }
+
+    if (payload.sourceProposalGroupId && sourceGroup) {
+      const sourceGroupReviewInput = readJsonObject(sourceGroup.reviewSnapshot?.inputSnapshot);
+      const sourceGroupPreview = readJsonObject(sourceGroup.preview);
+      const sourceGroupRevision = readJsonObject(sourceGroupPreview.revision);
+      const belongsToReview =
+        sourceGroup.reviewSnapshotId === review.id ||
+        sourceGroupReviewInput.sourceReviewId === review.id ||
+        sourceGroupRevision.sourceReviewId === review.id;
+
+      if (!belongsToReview) {
+        throw new ConflictException("The source proposal group does not belong to this review.");
+      }
+    }
+
+    const runId = sourceGroup?.runId ?? review.runId;
+    if (!runId) {
+      throw new ConflictException("This coaching review is not tied to an agent run and cannot be revised.");
+    }
+    const run = await db.agentRun.findFirst({
+      where: { id: runId, thread: { userId: actor.id } },
+      select: { id: true }
+    });
+    if (!run) {
+      throw new NotFoundException("Agent run not found.");
+    }
+
+    const revisionDraft = this.buildRevisionPackageDraft({
+      review,
+      runId,
+      sourceGroup,
+      requestId,
+      revisionReason
+    });
+
+    const createRevision = async (tx: TransactionClient) => {
+      await this.lockRevisionSource(tx, review.id);
+
+      const groupsToSupersede = await this.findSupersedableRevisionGroups(tx, review, sourceGroup?.id);
+      const supersededGroupIds = [...new Set(groupsToSupersede.map((group) => group.id))];
+      const supersededReviewIds = [
+        ...new Set(groupsToSupersede.map((group) => group.reviewSnapshotId).filter((id): id is string => Boolean(id)))
+      ];
+
+      if (supersededGroupIds.length > 0) {
+        await tx.agentProposalGroup.updateMany({
+          where: { id: { in: supersededGroupIds }, status: { in: ["pending", "approved"] } },
+          data: { status: "superseded" }
+        });
+
+        await tx.agentActionProposal.updateMany({
+          where: { proposalGroupId: { in: supersededGroupIds }, status: { in: ["pending", "approved"] } },
+          data: { status: "superseded" }
+        });
+
+        if (supersededReviewIds.length > 0) {
+          await tx.coachingReviewSnapshot.updateMany({
+            where: { id: { in: supersededReviewIds }, status: { in: ["draft", "packaged"] } },
+            data: { status: "superseded" }
+          });
+        }
+      }
+
+      const revisionReview = await tx.coachingReviewSnapshot.create({
+        data: {
+          userId: actor.id,
+          threadId: review.threadId,
+          runId,
+          type: revisionDraft.reviewPayload.type,
+          status: "packaged",
+          periodStart: review.periodStart ?? undefined,
+          periodEnd: review.periodEnd ?? undefined,
+          title: revisionDraft.reviewPayload.title,
+          summary: revisionDraft.reviewPayload.summary,
+          adherenceScore: revisionDraft.reviewPayload.adherenceScore,
+          riskFlags: revisionDraft.reviewPayload.riskFlags ?? [],
+          focusAreas: revisionDraft.reviewPayload.focusAreas ?? [],
+          recommendationTags: revisionDraft.reviewPayload.recommendationTags ?? [],
+          inputSnapshot: asJson(revisionDraft.reviewPayload.inputSnapshot ?? {}),
+          resultSnapshot: asJson(revisionDraft.reviewPayload.resultSnapshot ?? {}),
+          strategyTemplateId: revisionDraft.reviewPayload.strategyTemplateId,
+          strategyVersion: revisionDraft.reviewPayload.strategyVersion,
+          evidence: asJson(revisionDraft.reviewPayload.evidence ?? {}),
+          uncertaintyFlags: revisionDraft.reviewPayload.uncertaintyFlags ?? []
+        }
+      });
+
+      const policyLabels = this.policyService.getPolicyLabelsForActions(
+        [revisionDraft.proposalPayload.actionType],
+        revisionDraft.proposalGroupPayload.policyLabels ?? []
+      );
+      const revisionGroup = await tx.agentProposalGroup.create({
+        data: {
+          threadId: review.threadId,
+          runId,
+          userId: actor.id,
+          reviewSnapshotId: revisionReview.id,
+          status: "pending",
+          title: revisionDraft.proposalGroupPayload.title,
+          summary: revisionDraft.proposalGroupPayload.summary,
+          preview: asJson(revisionDraft.proposalGroupPayload.preview),
+          riskLevel: revisionDraft.proposalGroupPayload.riskLevel,
+          strategyTemplateId: revisionReview.strategyTemplateId,
+          strategyVersion: revisionReview.strategyVersion,
+          policyLabels,
+          expiresAt: revisionDraft.proposalGroupPayload.expiresAt ? new Date(revisionDraft.proposalGroupPayload.expiresAt) : undefined
+        }
+      });
+
+      const revisionProposal = await tx.agentActionProposal.create({
+        data: {
+          threadId: review.threadId,
+          runId,
+          userId: actor.id,
+          proposalGroupId: revisionGroup.id,
+          status: "pending",
+          actionType: revisionDraft.proposalPayload.actionType,
+          entityType: revisionDraft.proposalPayload.entityType,
+          entityId: revisionDraft.proposalPayload.entityId,
+          title: revisionDraft.proposalPayload.title,
+          summary: revisionDraft.proposalPayload.summary,
+          payload: asJson(revisionDraft.proposalPayload.payload),
+          preview: asJson(revisionDraft.proposalPayload.preview),
+          riskLevel: revisionDraft.proposalPayload.riskLevel,
+          requiresConfirmation: revisionDraft.proposalPayload.requiresConfirmation ?? true,
+          expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 2)
+        }
+      });
+
+      const qualityDraft = this.qualityService.buildPackageQualityDraft({
+        userId: actor.id,
+        threadId: review.threadId,
+        runId,
+        review: revisionDraft.reviewPayload,
+        packagePayload: revisionDraft.packagePayload,
+        riskLevel: revisionDraft.proposalGroupPayload.riskLevel,
+        policyLabels,
+        reviewSnapshotId: revisionReview.id,
+        proposalGroupId: revisionGroup.id
+      });
+      const qualityCheck = await this.qualityService.createQualityCheck(qualityDraft, tx);
+
+      await this.productEvents.record(
+        actor.id,
+        {
+          eventType: "revision_requested",
+          source: "revision",
+          entityType: "agent_proposal_group",
+          entityId: revisionGroup.id,
+          requestId,
+          payload: {
+            sourceReviewId: review.id,
+            sourceProposalGroupId: sourceGroup?.id ?? null,
+            supersededProposalGroupIds: supersededGroupIds,
+            revisionReason
+          }
+        },
+        tx
+      );
+
+      return {
+        revisionReview,
+        revisionGroup,
+        revisionProposal,
+        qualityCheck,
+        supersededGroupIds
+      };
+    };
+
+    const created = client ? await createRevision(client) : await this.prisma.$transaction(createRevision);
+
+    return {
+      request_id: requestId,
+      source_review: this.mapCoachingReview(review),
+      source_proposal_group: sourceGroup ? this.mapProposalGroup(sourceGroup) : null,
+      superseded_proposal_group_ids: created.supersededGroupIds,
+      review: this.mapCoachingReview(created.revisionReview),
+      proposal_group: this.mapProposalGroup({
+        ...created.revisionGroup,
+        proposals: [created.revisionProposal]
+      }),
+      proposals: [this.mapProposal(created.revisionProposal)],
+      quality_check: created.qualityCheck
+    };
   }
 
   async listCoachingReviews(threadId: string, userId?: string) {
@@ -765,6 +1208,23 @@ export class AgentStateService {
           data: { status: "rejected" }
         });
       }
+
+      await this.productEvents.record(
+        proposalGroup.userId,
+        {
+          eventType: "package_rejected",
+          source: "chat",
+          entityType: "agent_proposal_group",
+          entityId: proposalGroup.id,
+          payload: {
+            previousStatus: proposalGroup.status,
+            riskLevel: proposalGroup.riskLevel,
+            reviewSnapshotId: proposalGroup.reviewSnapshotId,
+            policyLabels: proposalGroup.policyLabels
+          }
+        },
+        tx
+      );
     });
 
     const refreshed = await this.prisma.agentProposalGroup.findUniqueOrThrow({
@@ -781,7 +1241,7 @@ export class AgentStateService {
       throw new ConflictException("This proposal has already been executed.");
     }
 
-    if (["rejected", "expired", "failed"].includes(proposal.status)) {
+    if (["rejected", "expired", "failed", "superseded", "stale"].includes(proposal.status)) {
       throw new ConflictException(`This proposal can no longer be confirmed. Current status: ${proposal.status}.`);
     }
 
@@ -894,7 +1354,7 @@ export class AgentStateService {
       throw new ConflictException("This coaching package has already been executed.");
     }
 
-    if (["rejected", "expired", "failed"].includes(proposalGroup.status)) {
+    if (["rejected", "expired", "failed", "superseded", "stale"].includes(proposalGroup.status)) {
       throw new ConflictException(`This coaching package can no longer be confirmed. Current status: ${proposalGroup.status}.`);
     }
 
@@ -1013,6 +1473,25 @@ export class AgentStateService {
           actionCount: actionResults.length,
           executedAt
         });
+
+        await this.productEvents.record(
+          actor.id,
+          {
+            eventType: "package_approved",
+            source: "chat",
+            entityType: "agent_proposal_group",
+            entityId: proposalGroup.id,
+            requestId: idempotencyKey,
+            payload: {
+              actionCount: actionResults.length,
+              outcomeId: outcome.id,
+              riskLevel: proposalGroup.riskLevel,
+              reviewSnapshotId: proposalGroup.reviewSnapshotId,
+              policyLabels: proposalGroup.policyLabels
+            }
+          },
+          tx
+        );
 
         return {
           ok: true,
