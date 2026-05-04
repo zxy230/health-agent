@@ -1,3 +1,4 @@
+import { isAccessTokenExpired } from "@/lib/access-token";
 import { clearAgentThreadId } from "@/lib/agent-thread";
 
 export type AuthMode = "login" | "register";
@@ -164,15 +165,31 @@ export function readAuthSession(): AuthSession | null {
     return null;
   }
 
-  return parseJson<AuthSession | null>(
+  const session = parseJson<AuthSession | null>(
     window.localStorage.getItem(authSessionStorageKey),
     null
   );
+
+  if (!session?.token) {
+    return null;
+  }
+
+  if (isAccessTokenExpired(session.token)) {
+    clearAuthSession();
+    return null;
+  }
+
+  return session;
 }
 
 export function readAuthAccessToken() {
   const cookieToken = readCookieValue(authTokenCookieKey);
   if (cookieToken) {
+    if (isAccessTokenExpired(cookieToken)) {
+      clearAuthSession();
+      return null;
+    }
+
     return cookieToken;
   }
 

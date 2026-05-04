@@ -324,3 +324,51 @@ export class CreateRecommendationFeedbackDto {
   @IsString()
   note?: string;
 }
+
+export class RefreshAgentWorkItemsDto {
+  @IsOptional()
+  @IsString()
+  requestId?: string;
+
+  @IsOptional()
+  @IsString()
+  source?: string;
+}
+
+export class DismissAgentWorkItemDto {
+  @IsOptional()
+  @IsString()
+  reason?: string;
+
+  @IsOptional()
+  @IsString()
+  requestId?: string;
+}
+
+export class ReviseCoachingReviewDto {
+  @IsOptional()
+  @IsString()
+  requestId?: string;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+
+  @IsOptional()
+  @IsString()
+  revisionReason?: string;
+
+  @IsOptional()
+  @IsString()
+  sourceProposalGroupId?: string;
+}
+
+export class ConvertAgentWorkItemDto {
+  @IsOptional()
+  @IsString()
+  requestId?: string;
+
+  @IsOptional()
+  @IsString()
+  revisionReason?: string;
+}
