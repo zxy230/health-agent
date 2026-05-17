@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
 import {
@@ -489,7 +489,22 @@ export class AgentStateService {
     return messages.map((message) => this.mapMessage(message));
   }
 
-  async createToolInvocationLog(payload: CreateToolInvocationLogDto) {
+  async createToolInvocationLog(payload: CreateToolInvocationLogDto, userId?: string) {
+    const threadId = payload.requestData.thread_id;
+    const runId = payload.requestData.run_id;
+    const plannerStep = payload.requestData.planner_step;
+    if (typeof threadId !== "string" || !threadId.trim()) {
+      throw new BadRequestException("requestData.thread_id is required.");
+    }
+    if (typeof runId !== "string" || !runId.trim()) {
+      throw new BadRequestException("requestData.run_id is required.");
+    }
+    if (plannerStep === undefined || plannerStep === null || plannerStep === "") {
+      throw new BadRequestException("requestData.planner_step is required.");
+    }
+
+    await this.getThreadForActor(threadId, userId);
+
     const log = await this.prisma.toolInvocationLog.create({
       data: {
         toolName: payload.toolName,

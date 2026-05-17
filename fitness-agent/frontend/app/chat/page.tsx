@@ -57,12 +57,14 @@ function buildErrorMessage(error: unknown, action: "message" | "proposal" | "pac
 }
 
 function buildAgentMeta(response: PostMessageResponse) {
+  const nextActions = response.nextActions.slice(0, 3);
   return {
     degradedMode: response.degradedMode,
     degradedReason: response.degradedReason,
     intent: response.intent,
     intentConfidence: response.intentConfidence,
-    nextActions: response.nextActions,
+    nextActions,
+    hasDetail: response.degradedMode || nextActions.length > 0,
     toolCount: response.toolEvents.filter((event) => event.event === "tool_call_completed").length
   };
 }
@@ -334,14 +336,14 @@ export default function ChatPage() {
             {lastAgentMeta?.toolCount ? <span className="mini-chip">工具 {lastAgentMeta.toolCount}</span> : null}
           </div>
         </div>
-        {lastAgentMeta ? (
+        {lastAgentMeta?.hasDetail ? (
           <div className="chat-meta-row">
             <span className="section-label">{lastAgentMeta.degradedMode ? "受限模式" : "Next"}</span>
             <div className="chip-row">
               {lastAgentMeta.degradedMode ? (
                 <span className="mini-chip">{lastAgentMeta.degradedReason || "LLM 暂不可用，已使用安全降级逻辑"}</span>
               ) : null}
-              {lastAgentMeta.nextActions.slice(0, 3).map((action) => (
+              {lastAgentMeta.nextActions.map((action) => (
                 <span key={action} className="mini-chip">
                   {action}
                 </span>

@@ -62,8 +62,8 @@ export class AgentStateController {
   }
 
   @Post("tool-invocations")
-  async createToolInvocationLog(@Body() body: CreateToolInvocationLogDto) {
-    return this.agentState.createToolInvocationLog(body);
+  async createToolInvocationLog(@Body() body: CreateToolInvocationLogDto, @CurrentUser() user: AuthTokenClaims) {
+    return this.agentState.createToolInvocationLog(body, user.sub);
   }
 
   @Get("runs/:runId")

@@ -10,6 +10,7 @@ AGENT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(AGENT_ROOT))
 
 from app.agents import HealthAgentRuntime
+from app.config import _read_float_env, _read_int_env
 from app.llm import OpenAICompatibleLLMClient, StructuredLLMResult
 from app.models import PostMessageRequest, ToolResponse
 from app.trace_logger import TraceLogger
@@ -59,6 +60,25 @@ class FakeTools:
         )
 
 
+class LocationTools(FakeTools):
+    async def invoke(self, tool_name: str, **kwargs: Any) -> ToolResponse:
+        if tool_name == "geocode_location":
+            return ToolResponse(
+                ok=True,
+                data={"latitude": 31.2, "longitude": 121.4},
+                human_readable="Geocoded location.",
+                source="amap",
+            )
+        if tool_name == "search_nearby_places":
+            return ToolResponse(
+                ok=True,
+                data={"places": [{"name": "Test Gym"}]},
+                human_readable="Searched nearby places.",
+                source="amap",
+            )
+        return await super().invoke(tool_name, **kwargs)
+
+
 class FakeLLM:
     def __init__(self, enabled: bool = True, data: dict[str, Any] | None = None, ok: bool = True) -> None:
         self.enabled = enabled
@@ -106,6 +126,26 @@ def make_runtime(llm: FakeLLM | OpenAICompatibleLLMClient) -> HealthAgentRuntime
 
 
 class RemediationP0P2Tests(unittest.IsolatedAsyncioTestCase):
+    def test_invalid_numeric_env_uses_defaults(self) -> None:
+        import os
+
+        previous_timeout = os.environ.get("LLM_TIMEOUT")
+        previous_tokens = os.environ.get("LLM_MAX_TOKENS")
+        os.environ["LLM_TIMEOUT"] = "not-a-number"
+        os.environ["LLM_MAX_TOKENS"] = "many"
+        try:
+            self.assertEqual(_read_float_env("LLM_TIMEOUT", 30), 30)
+            self.assertEqual(_read_int_env("LLM_MAX_TOKENS", 1200), 1200)
+        finally:
+            if previous_timeout is None:
+                os.environ.pop("LLM_TIMEOUT", None)
+            else:
+                os.environ["LLM_TIMEOUT"] = previous_timeout
+            if previous_tokens is None:
+                os.environ.pop("LLM_MAX_TOKENS", None)
+            else:
+                os.environ["LLM_MAX_TOKENS"] = previous_tokens
+
     async def test_disabled_llm_uses_degraded_keyword_intent(self) -> None:
         runtime = make_runtime(FakeLLM(enabled=False))
         intent, metadata, degraded_reason = await runtime._classify_intent(
@@ -188,6 +228,26 @@ class RemediationP0P2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(event.tool_name == "create_action_proposal" for event in tool_events))
         self.assertTrue(store.tool_logs)
         self.assertTrue(any(item["tool"] == "create_action_proposal" for item in observations))
+
+    async def test_planner_can_chain_geocode_to_nearby_search_in_second_iteration(self) -> None:
+        store = FakeStore()
+        runtime = HealthAgentRuntime(store, LocationTools(), TraceLogger(), FakeLLM())  # type: ignore[arg-type]
+        observations, tool_events, proposals, warnings = await runtime._execute_planner_tools(
+            "thread-1",
+            "run-1",
+            PostMessageRequest(text="帮我找附近健身房", location_hint="上海静安寺"),
+            {
+                "tools": [{"name": "geocode_location", "arguments": {"location": "上海静安寺"}, "purpose": "resolve"}],
+                "write_domain": None,
+            },
+            None,
+        )
+
+        self.assertEqual(proposals, [])
+        self.assertEqual(warnings, [])
+        self.assertIn("geocode_location", [event.tool_name for event in tool_events])
+        self.assertIn("search_nearby_places", [event.tool_name for event in tool_events])
+        self.assertTrue(any(item["tool"] == "search_nearby_places" for item in observations))
 
 
 class LLMClientMetadataTests(unittest.TestCase):

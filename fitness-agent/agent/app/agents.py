@@ -116,6 +116,8 @@ class HealthAgentRuntime:
     @staticmethod
     def _tool_payload(tool_response) -> dict[str, Any]:
         payload = dict(tool_response.data)
+        payload["ok"] = tool_response.ok
+        payload["source"] = tool_response.source
         if not tool_response.ok:
             if tool_response.error_code:
                 payload["error_code"] = tool_response.error_code
@@ -528,7 +530,7 @@ class HealthAgentRuntime:
                     request_data={
                         "thread_id": thread_id,
                         "run_id": run_id,
-                        "planner_step": planner_step,
+                        "planner_step": event.payload.get("planner_step", planner_step),
                         "tool_name": event.tool_name,
                     },
                     response_data=event.payload,
@@ -551,74 +553,117 @@ class HealthAgentRuntime:
         validation_warnings: list[str] = []
         auth_tools = {"get_coach_summary", "load_current_plan", "get_memory_summary", "get_workspace_summary"}
 
-        for index, tool in enumerate(list(planner.get("tools") or [])[:4]):
-            name = str(tool.get("name") or "")
-            if name not in self.PLANNER_TOOL_WHITELIST:
-                continue
-            arguments = tool.get("arguments") if isinstance(tool.get("arguments"), dict) else {}
-            purpose = str(tool.get("purpose") or "")
-            tool_events.append(ToolEvent(event="tool_call_started", tool_name=name, summary=purpose or f"调用 {name}"))
+        pending_tools = list(planner.get("tools") or [])[:4]
+        for iteration in range(2):
+            next_round_tools: list[dict[str, Any]] = []
+            for index, tool in enumerate(pending_tools[:4]):
+                name = str(tool.get("name") or "")
+                if name not in self.PLANNER_TOOL_WHITELIST:
+                    continue
+                arguments = tool.get("arguments") if isinstance(tool.get("arguments"), dict) else {}
+                purpose = str(tool.get("purpose") or "")
+                planner_step = f"{iteration}:{index}"
+                tool_events.append(ToolEvent(event="tool_call_started", tool_name=name, summary=purpose or f"调用 {name}"))
 
-            if name == "create_action_proposal":
-                write_domain = str(arguments.get("write_domain") or planner.get("write_domain") or "")
-                context, write_events = await self._load_write_context(write_domain, authorization)
-                tool_events.extend(write_events)
-                proposed = self._heuristic_write_proposals(write_domain, request.text, context)
-                proposal_drafts, validation_warnings = self._validate_proposals(proposed)
-                payload = {
-                    "ok": bool(proposal_drafts),
-                    "proposal_count": len(proposal_drafts),
-                    "validation_warnings": validation_warnings,
-                    "planner_step": index,
-                }
-                tool_events.append(
-                    ToolEvent(
-                        event="tool_call_completed",
-                        tool_name=name,
-                        summary=f"生成 {len(proposal_drafts)} 条待确认提案" if proposal_drafts else "未能生成安全提案",
-                        payload=payload,
-                    )
-                )
-                observations.append({"tool": name, "purpose": purpose, "result": payload})
-                continue
-
-            kwargs = dict(arguments)
-            if name in auth_tools:
-                kwargs["authorization"] = authorization
-            try:
-                response = await self.tools.invoke(name, **kwargs)
-                payload = self._tool_payload(response)
-                payload["ok"] = response.ok
-                payload["planner_step"] = index
-                tool_events.append(
-                    ToolEvent(
-                        event="tool_call_completed",
-                        tool_name=name,
-                        summary=response.human_readable,
-                        payload=payload,
-                    )
-                )
-                observations.append(
-                    {
-                        "tool": name,
-                        "purpose": purpose,
-                        "ok": response.ok,
-                        "source": response.source,
-                        "data": response.data,
-                        "error_code": response.error_code,
+                if name == "create_action_proposal":
+                    write_domain = str(arguments.get("write_domain") or planner.get("write_domain") or "")
+                    context, write_events = await self._load_write_context(write_domain, authorization)
+                    tool_events.extend(write_events)
+                    proposed = self._heuristic_write_proposals(write_domain, request.text, context)
+                    proposal_drafts, validation_warnings = self._validate_proposals(proposed)
+                    payload = {
+                        "ok": bool(proposal_drafts),
+                        "proposal_count": len(proposal_drafts),
+                        "validation_warnings": validation_warnings,
+                        "planner_step": planner_step,
                     }
-                )
-            except Exception as exc:
-                payload = {"ok": False, "error_code": "tool_exception", "error": str(exc), "planner_step": index}
-                tool_events.append(
-                    ToolEvent(
-                        event="tool_call_completed",
-                        tool_name=name,
-                        summary=f"{name} 调用失败",
-                        payload=payload,
+                    tool_events.append(
+                        ToolEvent(
+                            event="tool_call_completed",
+                            tool_name=name,
+                            summary=f"生成 {len(proposal_drafts)} 条待确认提案" if proposal_drafts else "未能生成安全提案",
+                            payload=payload,
+                        )
                     )
-                )
-                observations.append({"tool": name, "purpose": purpose, "ok": False, "error_code": "tool_exception", "error": str(exc)})
+                    observations.append({"tool": name, "purpose": purpose, "result": payload})
+                    continue
+
+                kwargs = dict(arguments)
+                if name in auth_tools:
+                    kwargs["authorization"] = authorization
+                if name == "search_nearby_places":
+                    kwargs.setdefault("latitude", request.latitude)
+                    kwargs.setdefault("longitude", request.longitude)
+                    kwargs.setdefault("location_hint", request.location_hint)
+                if name == "geocode_location" and not kwargs.get("location") and request.location_hint:
+                    kwargs["location"] = request.location_hint
+
+                try:
+                    response = await self.tools.invoke(name, **kwargs)
+                    payload = self._tool_payload(response)
+                    payload["planner_step"] = planner_step
+                    tool_events.append(
+                        ToolEvent(
+                            event="tool_call_completed",
+                            tool_name=name,
+                            summary=response.human_readable,
+                            payload=payload,
+                        )
+                    )
+                    observations.append(
+                        {
+                            "tool": name,
+                            "purpose": purpose,
+                            "ok": response.ok,
+                            "source": response.source,
+                            "data": response.data,
+                            "error_code": response.error_code,
+                            "planner_step": planner_step,
+                        }
+                    )
+                    if (
+                        iteration == 0
+                        and name == "geocode_location"
+                        and response.ok
+                        and "latitude" in response.data
+                        and "longitude" in response.data
+                        and not any(str(item.get("name") or "") == "search_nearby_places" for item in pending_tools)
+                    ):
+                        next_round_tools.append(
+                            {
+                                "name": "search_nearby_places",
+                                "arguments": {
+                                    "keyword": arguments.get("keyword") or "gym",
+                                    "latitude": response.data.get("latitude"),
+                                    "longitude": response.data.get("longitude"),
+                                    "location_hint": request.location_hint or arguments.get("location"),
+                                },
+                                "purpose": "Use resolved coordinates to search nearby training places.",
+                            }
+                        )
+                except Exception as exc:
+                    payload = {"ok": False, "error_code": "tool_exception", "error": str(exc), "planner_step": planner_step}
+                    tool_events.append(
+                        ToolEvent(
+                            event="tool_call_completed",
+                            tool_name=name,
+                            summary=f"{name} 调用失败",
+                            payload=payload,
+                        )
+                    )
+                    observations.append(
+                        {
+                            "tool": name,
+                            "purpose": purpose,
+                            "ok": False,
+                            "error_code": "tool_exception",
+                            "error": str(exc),
+                            "planner_step": planner_step,
+                        }
+                    )
+            if not next_round_tools:
+                break
+            pending_tools = next_round_tools[:4]
 
         await self._persist_tool_events(thread_id, run_id, tool_events, authorization, "planner_loop")
         return observations, tool_events, proposal_drafts, validation_warnings

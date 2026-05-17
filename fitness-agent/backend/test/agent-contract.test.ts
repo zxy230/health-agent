@@ -20,7 +20,9 @@ test("P0-P2 tool invocation logging endpoint persists planner metadata", () => {
   const dtoSource = readFileSync(resolve(__dirname, "..", "src", "dtos", "agent.dto.ts"), "utf8");
 
   assert.match(controllerSource, /@Post\("tool-invocations"\)/);
+  assert.match(controllerSource, /@CurrentUser\(\) user: AuthTokenClaims/);
   assert.match(serviceSource, /toolInvocationLog\.create/);
+  assert.match(serviceSource, /getThreadForActor\(threadId, userId\)/);
   assert.match(dtoSource, /class CreateToolInvocationLogDto/);
   assert.match(dtoSource, /requestData/);
   assert.match(dtoSource, /responseData/);
