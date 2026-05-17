@@ -8,6 +8,7 @@ import {
   CreateCoachingPackageDto,
   CreateCoachingReviewSnapshotDto,
   CreateAgentRunDto,
+  CreateToolInvocationLogDto,
   ReviseCoachingReviewDto
 } from "../dtos/agent.dto";
 import { AppStoreService } from "../store/app-store.service";
@@ -467,6 +468,17 @@ export class AgentStateService {
     });
   }
 
+  async getThread(threadId: string, userId?: string) {
+    const { thread } = await this.getThreadForActor(threadId, userId);
+    return {
+      id: thread.id,
+      title: thread.title,
+      summary: thread.summary,
+      created_at: thread.createdAt.toISOString(),
+      updated_at: thread.updatedAt.toISOString()
+    };
+  }
+
   async listMessages(threadId: string, userId?: string) {
     const { thread } = await this.getThreadForActor(threadId, userId);
     const messages = await this.prisma.agentMessage.findMany({
@@ -475,6 +487,26 @@ export class AgentStateService {
     });
 
     return messages.map((message) => this.mapMessage(message));
+  }
+
+  async createToolInvocationLog(payload: CreateToolInvocationLogDto) {
+    const log = await this.prisma.toolInvocationLog.create({
+      data: {
+        toolName: payload.toolName,
+        status: payload.status,
+        requestData: asJson(payload.requestData),
+        responseData: asJson(payload.responseData)
+      }
+    });
+
+    return {
+      id: log.id,
+      tool_name: log.toolName,
+      status: log.status,
+      request_data: log.requestData,
+      response_data: log.responseData,
+      created_at: log.createdAt.toISOString()
+    };
   }
 
   async getThreadMemoryState(threadId: string, userId?: string) {
